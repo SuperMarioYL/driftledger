@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "name": "driftledger",
+  "github": "https://github.com/SuperMarioYL/driftledger",
+  "host": "driftledger.lei6393.com",
+  "lang": { "primary": "en", "toggle": true },
+  "accent": ["#e8a04c", "#d97757", "#6b7280"],
+  "hero": {
+    "eyebrow": { "zh": "长程智能体 · 计划即合约 · 飞行中纠偏", "en": "Long-horizon agents · Plan-as-contract · Mid-flight course-correct" },
+    "headline": { "zh": "智能体跑偏了？\n第 20 分钟就拦下，不是第 88 分钟", "en": "Your agent drifted from the plan.\nCatch it at minute 20, not 88." },
+    "sub": { "zh": "把智能体公布的计划变成可对账的合约，实时对照它正在做的事，发现跑偏当场接受——把事后复盘变成第一手的飞行记录。", "en": "Turn the agent's stated plan into a reconcilable contract, watch it against live execution, and accept drift on the spot — turning post-mortem discovery into a first-class in-flight record." },
+    "command": "driftledger watch plan.md trace.jsonl",
+    "cta": { "zh": "查看 GitHub", "en": "View on GitHub" },
+    "ctaGithub": { "zh": "Star 项目", "en": "Star the repo" },
+    "scroll": { "zh": "往下看", "en": "Scroll" }
+  },
+  "advantages": [
+    {
+      "title": { "zh": "计划即合约", "en": "A plan you can hold it to" },
+      "body": { "zh": "一条命令把智能体的计划变成带步骤和验收标准的版本化合约——它说过要做的事，白纸黑字，对得上账。", "en": "One command turns the agent's plan into a versioned contract with steps and acceptance criteria — what it said it would do, on the record and reconcilable." },
+      "chips": ["› driftledger init", "› 版本化 · 可追溯", "› 每步带验收标准"]
+    },
+    {
+      "title": { "zh": "飞行中偏差账本", "en": "An in-flight deviation ledger" },
+      "body": { "zh": "智能体一边跑，你一边看：哪步对上了、哪步跑偏了、哪步没动、哪步多冒出来——都是实时的。", "en": "As the agent runs, watch live: which steps matched, which drifted, which never ran, which appeared out of nowhere — all in real time." },
+      "chips": ["› 实时 TUI", "› 已匹配 / 跑偏 / 未执行 / 多余", "› 边跑边对账"]
+    },
+    {
+      "title": { "zh": "一键接受，审计留痕", "en": "Accept drift, keep the receipt" },
+      "body": { "zh": "按一下 a 键接受跑偏的步骤，账本记成一条版本化记录——接受是第一手的，不是悄悄覆写过去。", "en": "Press a to accept a drifted step and the ledger records it as a versioned entry — acceptance is first-class, never a silent overwrite." },
+      "chips": ["› 按 a 接受", "› 留痕 · 可回看", "› 跑偏变记录，不丢证据"]
+    },
+    {
+      "title": { "zh": "不靠大模型对账", "en": "Reconciliation without an LLM" },
+      "body": { "zh": "对账靠步骤在不在、验收关键词对不对——确定性的，不靠另一个大模型打分。所以一个周末能搭起来，而且全程可审计。", "en": "Matching is step-presence and keyword acceptance-criteria — deterministic, not another model scoring it. So it builds in a weekend and stays fully auditable." },
+      "chips": ["› 确定性匹配", "› 无需额外模型", "› 可审计 · 可复现"]
+    }
+  ],
+  "scene": { "kind": "mesh" },
+  "cta": {
+    "headline": { "zh": "把跑偏变成飞行记录", "en": "Turn drift into a flight record" },
+    "sub": { "zh": "一条命令装上，给长程智能体配上可对账的计划合约。", "en": "Install in one command — give your long-horizon agent a reconcilable plan contract." },
+    "button": { "zh": "在 GitHub 上查看", "en": "View on GitHub" }
+  },
+  "footer": { "tag": { "zh": "长程智能体的飞行记录仪", "en": "The flight recorder for long-horizon agents" } }
+}
