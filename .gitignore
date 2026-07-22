@@ -1,0 +1,31 @@
+# build scratch
+.build_metadata*
+.builder_*
+.build_ctx.json
+_build_ctx.json
+_build_metadata*
+.spawn.*
+.stage_*
+BUILD_SETUP_NEXT_STEPS.md
+PUBLISH_BLOCKED.md
+
+# agent / assistant local config — never shipped
+.claude/
+CLAUDE.md
+
+# go build / test artifacts
+/bin/
+/dist/
+*.exe
+*.exe~
+*.test
+*.out
+coverage.out
+coverage.txt
+
+# editor / os noise
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
