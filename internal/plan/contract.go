@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -161,3 +162,98 @@ accept: unexecuted
 intent: Write tests covering the deviation diff
 accept: reconcile_test
 `
+
+// AcceptedFold is one accepted deviation to fold into a patched plan contract.
+// It is a plain-shape mirror of diff.Deviation so the plan package does not
+// import diff (which would create an import cycle — diff already imports plan).
+type AcceptedFold struct {
+	StepID  string
+	Kind    string
+	Summary string
+}
+
+// BumpVersion increments the patch component of a semantic version string
+// ("0.1.0" -> "0.1.1"). Each accepted-deviation fold is a small contract
+// revision, so the patch component is the conservative bump; repeated patches
+// accumulate (0.1.1, 0.1.2, ...). A version that is not three numeric
+// dot-separated components falls back to "<v>.patch1" so the bump is always
+// observable rather than silently dropping a malformed version.
+func BumpVersion(v string) string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		v = "0.0.0"
+	}
+	parts := strings.Split(v, ".")
+	if len(parts) == 3 {
+		if n, err := strconv.Atoi(parts[2]); err == nil {
+			return parts[0] + "." + parts[1] + "." + strconv.Itoa(n+1)
+		}
+	}
+	return v + ".patch1"
+}
+
+// ApplyPatchMarkdown rewrites a plan markdown document to a new semantic version
+// and folds each accepted deviation into the contract as an `accepted:`
+// annotation under its step's heading. The annotation is freeform prose to the
+// parser (it does not match the `accept:` regex), so the rewritten plan parses
+// cleanly while a human reader sees which steps' drift was folded into the new
+// contract version. If the source has no `version:` line, one is appended so
+// the rewritten contract carries the new version (the parser finds it anywhere).
+//
+// This realizes the base plan's m2_patch_contract milestone: drift accepted
+// mid-flight becomes a first-class plan revision, and the ledger (which records
+// the matching patch entry) becomes a versioned audit trail.
+func ApplyPatchMarkdown(md, newVersion string, folds []AcceptedFold) (string, error) {
+	byStep := make(map[string]AcceptedFold, len(folds))
+	for _, f := range folds {
+		byStep[f.StepID] = f
+	}
+	sc := bufio.NewScanner(strings.NewReader(md))
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	var out strings.Builder
+	versionBumped := false
+	for sc.Scan() {
+		line := sc.Text()
+		if versionRe.MatchString(line) {
+			out.WriteString("version: ")
+			out.WriteString(newVersion)
+			out.WriteByte('\n')
+			versionBumped = true
+			continue
+		}
+		out.WriteString(line)
+		out.WriteByte('\n')
+		if m := headingRe.FindStringSubmatch(line); m != nil {
+			if fold, ok := byStep[strings.TrimSpace(m[1])]; ok {
+				writeAcceptedAnnotation(&out, fold, newVersion)
+			}
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return "", fmt.Errorf("plan: patch scan: %w", err)
+	}
+	if !versionBumped {
+		out.WriteString("version: ")
+		out.WriteString(newVersion)
+		out.WriteByte('\n')
+	}
+	return out.String(), nil
+}
+
+// writeAcceptedAnnotation appends one `accepted:` line under a step heading.
+// The line is freeform prose to the parser (it does not match `accept:`) and is
+// kept on a single line: a trace summary can decode to a real newline, which
+// would otherwise split the annotation across plan lines.
+func writeAcceptedAnnotation(out *strings.Builder, fold AcceptedFold, newVersion string) {
+	kind := fold.Kind
+	if kind == "" {
+		kind = "deviation"
+	}
+	note := strings.ReplaceAll(fold.Summary, "\n", " ")
+	note = strings.ReplaceAll(note, "\r", "")
+	if note != "" {
+		fmt.Fprintf(out, "accepted: %s folded into v%s (%s)\n", kind, newVersion, note)
+	} else {
+		fmt.Fprintf(out, "accepted: %s folded into v%s\n", kind, newVersion)
+	}
+}

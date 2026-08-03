@@ -3,6 +3,7 @@ package tui
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -211,6 +212,49 @@ func TestNewRejectsBadPlan(t *testing.T) {
 	writeFile(t, planPath, "# just a title\n")
 	if _, err := New(planPath, "", filepath.Join(dir, "l.jsonl")); err == nil {
 		t.Fatal("expected error for plan with no steps, got nil")
+	}
+}
+
+// TestRefreshSurfacesTooLongLineError is the regression for
+// fix-tui-trace-read-error-swallow: a single trace line exceeding the 1MB
+// scanner buffer must surface the read error in View() (not swallow it) and
+// must NOT silently reconcile the partial events parsed before the too-long
+// line, which previously painted an incomplete ledger with no error signal.
+func TestRefreshSurfacesTooLongLineError(t *testing.T) {
+	dir := t.TempDir()
+	planPath := filepath.Join(dir, "plan.md")
+	tracePath := filepath.Join(dir, "trace.jsonl")
+	ledgerPath := filepath.Join(dir, "ledger.jsonl")
+	writeFile(t, planPath, planMD)
+	// A valid step-1 event, then a single trace line whose payload exceeds the
+	// 1MB scanner buffer. ParseFile returns the partial step-1 event plus
+	// bufio.ErrTooLong; the bug fed the partial event into diff.Reconcile
+	// (step-1 painted matched) and then wiped m.err — a silently partial ledger
+	// with nothing wrong shown.
+	giant := `{"ts":"2026-07-23T10:05:00Z","step_id":"step-2","action":"run","summary":"` +
+		strings.Repeat("x", 2*1024*1024) + `"}`
+	content := traceLine("2026-07-23T10:00:00Z", "step-1", "run",
+		"initialized go module and added cmd package") + giant + "\n"
+	writeFile(t, tracePath, content)
+
+	m, err := New(planPath, tracePath, ledgerPath)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	// (a) the trace-read error surfaces in View() rather than being swallowed.
+	if m.err == "" {
+		t.Fatal("expected trace-read error to surface in m.err, got empty")
+	}
+	out := m.View()
+	if !contains(out, "trace read") {
+		t.Errorf("View missing trace-read error:\n%s", out)
+	}
+	// (b) partial events are not silently reconciled on the too-long path:
+	// step-1's valid event must not paint as matched (reconcile was halted).
+	for _, d := range m.deviations {
+		if d.StepID == "step-1" && d.Kind == diff.KindMatched {
+			t.Fatalf("partial step-1 event reconciled as matched on the too-long path: %v", m.deviations)
+		}
 	}
 }
 

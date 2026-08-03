@@ -88,6 +88,37 @@ func (l *Ledger) Accept(planVersion string, d diff.Deviation) error {
 	})
 }
 
+// Patch appends a `patch` LedgerEntry (op: patch, plan_version: <newVersion>)
+// for every accepted deviation folded into the new plan contract, each stamped
+// with PatchedToVersion. When there are no accepted deviations it still appends
+// a single plan-level marker entry so the ledger records the version bump.
+// This turns the append-only ledger from a view into a versioned audit trail:
+// `jq '.op=="patch"' ledger.jsonl` lists every contract revision and the
+// deviations folded into it. Realizes the base plan's m2_patch_contract
+// milestone alongside `driftledger patch`.
+func (l *Ledger) Patch(planVersion string, devs []diff.Deviation) error {
+	if len(devs) == 0 {
+		return l.Append(Entry{
+			PlanVersion: planVersion,
+			Op:          OpPatch,
+			Deviation: diff.Deviation{
+				Summary: fmt.Sprintf("patched plan to %s (no accepted deviations)", planVersion),
+			},
+		})
+	}
+	for _, d := range devs {
+		d.PatchedToVersion = planVersion
+		if err := l.Append(Entry{
+			PlanVersion: planVersion,
+			Op:          OpPatch,
+			Deviation:   d,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Read returns every entry in the ledger file. A missing file returns nil +
 // nil — a fresh repo simply has no accepted deviations yet.
 func Read(path string) ([]Entry, error) {

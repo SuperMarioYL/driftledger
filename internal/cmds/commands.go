@@ -32,9 +32,9 @@ not in the post-mortem.
 
 Reconciliation is structural (step-presence plus accept-criteria keyword match),
 deterministic, and re-run on every new trace line. The ledger is append-only
-JSONL you can inspect with jq. m1 ships diff + watch; patch (m2) and rollback
-(m3) are stubbed on the roadmap.`,
-		Version: "0.1.0",
+JSONL you can inspect with jq. diff + watch ship m1; patch ships m2 (rewrite the
+contract from accepted deviations); rollback (m3) is stubbed on the roadmap.`,
+		Version: "0.2.0",
 	}
 
 	root.AddCommand(newInitCmd())
@@ -164,20 +164,116 @@ func newWatchCmd() *cobra.Command {
 	return c
 }
 
-// --- patch / rollback (m2 / m3 stubs) ------------------------------------
+// --- patch (m2) / rollback (m3 stub) -------------------------------------
 
 func newPatchCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "patch",
-		Short: "(m2 roadmap) rewrite the plan contract to a new version capturing accepted drift.",
+	var ledgerPath string
+	c := &cobra.Command{
+		Use:   "patch <plan.md>",
+		Short: "Rewrite the plan contract to a new version folding accepted deviations.",
+		Long: `Rewrite the plan contract to a new semantic version that captures accepted
+deviations as the new contract, and append a ` + "`patch`" + ` LedgerEntry to the
+deviation ledger. The ledger becomes a versioned audit trail (jq-inspectable).
+
+Accept a deviation first with ` + "`driftledger watch`" + ` (press ` + "`a`" + `), then run
+` + "`driftledger patch plan.md`" + ` to fold the accepted drift into the contract.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Fprintln(cmd.OutOrStdout(),
-				"patch is an m2 roadmap item — it will rewrite the plan contract to a new\n"+
-					"semantic version capturing accepted deviations and append a `patch` entry to\n"+
-					"the ledger, turning the append-only view into a versioned audit trail.")
-			return nil
+			return runPatch(args[0], ledgerPath, cmd.OutOrStdout())
 		},
 	}
+	c.Flags().StringVarP(&ledgerPath, "ledger", "l", DefaultLedgerPath, "deviation ledger path (patch entry)")
+	return c
+}
+
+// runPatch realizes the base plan's m2_patch_contract milestone: it bumps the
+// plan contract to a new semantic version, folds the accepted deviations that
+// landed since the last patch into the contract as `accepted:` annotations,
+// and appends a `patch` LedgerEntry per folded deviation (or a single marker
+// entry when there are none) so the ledger becomes a versioned audit trail.
+// It reads pending accepts straight from the append-only ledger — no trace
+// file needed, since each accept entry already carries the deviation snapshot.
+func runPatch(planPath, ledgerPath string, out io.Writer) error {
+	p, err := plan.ParseFile(planPath)
+	if err != nil {
+		return err
+	}
+	entries, err := ledger.Read(ledgerPath)
+	if err != nil {
+		return err
+	}
+	pending := pendingAccepted(entries)
+
+	newVersion := plan.BumpVersion(p.Version)
+	folds := make([]plan.AcceptedFold, 0, len(pending))
+	for _, d := range pending {
+		folds = append(folds, plan.AcceptedFold{
+			StepID:  d.StepID,
+			Kind:    string(d.Kind),
+			Summary: d.Summary,
+		})
+	}
+
+	origMD, err := os.ReadFile(planPath)
+	if err != nil {
+		return fmt.Errorf("patch: read %s: %w", planPath, err)
+	}
+	rewritten, err := plan.ApplyPatchMarkdown(string(origMD), newVersion, folds)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(planPath, []byte(rewritten), 0o644); err != nil {
+		return fmt.Errorf("patch: write %s: %w", planPath, err)
+	}
+
+	l := ledger.New(ledgerPath)
+	if err := l.Patch(newVersion, pending); err != nil {
+		return fmt.Errorf("patch: ledger: %w", err)
+	}
+
+	fmt.Fprintf(out, "patched %s → v%s", planPath, newVersion)
+	if len(pending) > 0 {
+		fmt.Fprintf(out, " (%d accepted deviation(s) folded)", len(pending))
+	} else {
+		fmt.Fprint(out, " (no pending accepted deviations; version bumped)")
+	}
+	fmt.Fprintln(out)
+	return nil
+}
+
+// pendingAccepted returns the accept-entry deviations that have landed since
+// the most recent patch entry in the append-only ledger (latest per step id
+// wins). A patch entry folds and resets the pending set, so only accepts
+// recorded AFTER the last patch remain pending for the next `patch` call.
+func pendingAccepted(entries []ledger.Entry) []diff.Deviation {
+	var pending []diff.Deviation
+	for _, e := range entries {
+		switch e.Op {
+		case ledger.OpPatch:
+			// A patch folds the pending accepts; reset so only accepts recorded
+			// after the most recent patch remain pending.
+			pending = nil
+		case ledger.OpAccept:
+			pending = replaceDeviation(pending, e.Deviation)
+		}
+	}
+	return pending
+}
+
+// replaceDeviation appends d, replacing any existing entry for the same step
+// id so the latest accept snapshot wins (the watch TUI is idempotent, but this
+// is defensive against duplicate accept entries between patches).
+func replaceDeviation(ds []diff.Deviation, d diff.Deviation) []diff.Deviation {
+	if d.StepID == "" {
+		return append(ds, d)
+	}
+	for i := range ds {
+		if ds[i].StepID == d.StepID {
+			ds[i] = d
+			return ds
+		}
+	}
+	return append(ds, d)
 }
 
 func newRollbackCmd() *cobra.Command {

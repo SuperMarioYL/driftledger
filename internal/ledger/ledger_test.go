@@ -130,6 +130,65 @@ func TestAcceptedStepIDsMissingFile(t *testing.T) {
 	}
 }
 
+func TestPatchAppendsPatchEntries(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ledger.jsonl")
+	l := New(path)
+	drifting := dev("step-2", diff.KindDrifting)
+	drifting.Summary = "punted on statuses"
+	unex := dev("step-3", diff.KindUnexecuted)
+	if err := l.Patch("0.1.1", []diff.Deviation{drifting, unex}); err != nil {
+		t.Fatalf("Patch: %v", err)
+	}
+	entries, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("entries = %d, want 2", len(entries))
+	}
+	for i, e := range entries {
+		if e.Op != OpPatch {
+			t.Errorf("entries[%d].op = %q, want patch", i, e.Op)
+		}
+		if e.PlanVersion != "0.1.1" {
+			t.Errorf("entries[%d].plan_version = %q, want 0.1.1", i, e.PlanVersion)
+		}
+		if e.Deviation.PatchedToVersion != "0.1.1" {
+			t.Errorf("entries[%d].patched_to_version = %q, want 0.1.1", i, e.Deviation.PatchedToVersion)
+		}
+		if e.TS.IsZero() {
+			t.Errorf("entries[%d].TS should be stamped now", i)
+		}
+	}
+	if entries[0].Deviation.StepID != "step-2" {
+		t.Errorf("entries[0].step_id = %q, want step-2", entries[0].Deviation.StepID)
+	}
+	if entries[1].Deviation.StepID != "step-3" {
+		t.Errorf("entries[1].step_id = %q, want step-3", entries[1].Deviation.StepID)
+	}
+}
+
+func TestPatchNoDeviationsAppendsMarker(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ledger.jsonl")
+	l := New(path)
+	if err := l.Patch("0.1.1", nil); err != nil {
+		t.Fatalf("Patch: %v", err)
+	}
+	entries, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("entries = %d, want 1 marker entry", len(entries))
+	}
+	if entries[0].Op != OpPatch {
+		t.Errorf("op = %q, want patch", entries[0].Op)
+	}
+	if entries[0].PlanVersion != "0.1.1" {
+		t.Errorf("plan_version = %q, want 0.1.1", entries[0].PlanVersion)
+	}
+}
+
 func TestEntryJSONShape(t *testing.T) {
 	// The ledger line must stay `jq`-inspectable: top-level ts / plan_version /
 	// op / deviation, with deviation.step_id present.

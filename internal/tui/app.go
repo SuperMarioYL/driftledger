@@ -9,6 +9,8 @@
 package tui
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -182,13 +184,27 @@ func (m *Model) refresh() {
 	if err == nil {
 		m.traceSize = size
 	}
+	// Clear any prior transient error on the success path BEFORE the read. The
+	// old code wiped a real trace-read error with an unconditional `m.err = ""`
+	// at the end of refresh, so an IO/permission error or a bufio.ErrTooLong on
+	// a >1MB trace line could never be rendered by View() — and on the too-long
+	// path ParseFile's PARTIAL events fed into diff.Reconcile, silently
+	// rendering an incomplete deviation ledger as if nothing were wrong.
+	m.err = ""
 	events, err := trace.ParseFile(m.tracePath)
 	if err != nil && !os.IsNotExist(err) {
+		// Surface the read error so View() can render it. On the too-long-line
+		// path, halt the partial reconcile: do not feed ParseFile's partial
+		// events into diff.Reconcile — keep the last known-good deviation set
+		// and show the error instead of a silently incomplete ledger.
 		m.err = fmt.Sprintf("trace read: %v", err)
+		if errors.Is(err, bufio.ErrTooLong) {
+			m.overlayAccepted()
+			return
+		}
 	}
 	m.deviations = diff.Reconcile(m.plan, events)
 	m.overlayAccepted()
-	m.err = ""
 }
 
 func (m *Model) overlayAccepted() {
