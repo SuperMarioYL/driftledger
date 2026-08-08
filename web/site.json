@@ -1,5 +1,6 @@
 {
   "schema": 1,
+  "content_version": 2,
   "name": "driftledger",
   "github": "https://github.com/SuperMarioYL/driftledger",
   "host": "driftledger.lei6393.com",
@@ -7,8 +8,8 @@
   "accent": ["#e8a04c", "#d97757", "#6b7280"],
   "hero": {
     "eyebrow": { "zh": "长程智能体 · 计划即合约 · 飞行中纠偏", "en": "Long-horizon agents · Plan-as-contract · Mid-flight course-correct" },
-    "headline": { "zh": "智能体跑偏了？\n第 20 分钟就拦下，不是第 88 分钟", "en": "Your agent drifted from the plan.\nCatch it at minute 20, not 88." },
-    "sub": { "zh": "把智能体公布的计划变成可对账的合约，实时对照它正在做的事——发现跑偏当场接受、当场写回新版合约。你看到的偏差就是真的偏差，不再有被悄悄丢掉的步骤。", "en": "Turn the agent's stated plan into a reconcilable contract and watch it against live execution — accept drift on the spot and fold it back into a new versioned contract. What you see is the real drift, with no step silently dropped." },
+    "headline": { "zh": "智能体跑偏了？\n第 20 分钟就拦下，当场改回合约", "en": "Your agent drifted from the plan.\nCatch it at minute 20, patch it, roll it back." },
+    "sub": { "zh": "把智能体公布的计划变成可对账的合约，实时对照它正在做的事——发现跑偏当场接受、写回新版合约、再一条命令发出回滚指令。从发现到纠偏，全程飞行中完成，不再等事后复盘。", "en": "Turn the agent's stated plan into a reconcilable contract and watch it against live execution — accept drift on the spot, fold it back into a new versioned contract, then emit a rollback directive. From catch to correct, all mid-flight — never in the post-mortem." },
     "command": "driftledger watch plan.md trace.jsonl",
     "cta": { "zh": "查看 GitHub", "en": "View on GitHub" },
     "ctaGithub": { "zh": "Star 项目", "en": "Star the repo" },
@@ -26,9 +27,9 @@
       "chips": ["› 换行不再丢事件", "› 读取报错直接可见", "› 账本不再残缺"]
     },
     {
-      "title": { "zh": "接受跑偏，当场写回合约", "en": "Accept drift, patch the contract on the spot" },
-      "body": { "zh": "按 a 接受跑偏的步骤，再一条命令把接受的偏差折回新版计划合约——版本递增、留痕可查。计划跟着智能体一起演进，每一次修订都是账本里一条可审计的记录，不再是写不回去的死笔记。", "en": "Press a to accept a drifted step, then one command folds the accepted deviation back into a new versioned plan contract — version bumped, receipt on the record. The plan evolves with the agent, and every revision is an auditable entry in the ledger, not a dead-end note." },
-      "chips": ["› driftledger patch", "› 版本递增 · 留痕", "› 每次修订可查"]
+      "title": { "zh": "接受、改回、回滚——闭环完成", "en": "Accept, patch, rollback — the loop is closed" },
+      "body": { "zh": "按 a 接受跑偏的步骤，一条命令把接受的偏差折回新版计划合约——版本递增、留痕可查；再一条命令发出 git 回滚指令，把跑偏的改动干净地退回去。从发现跑偏到纠正合约到发出回滚，全程留在账本里，每一步都可审计，不再靠事后翻记录。", "en": "Press a to accept a drifted step, one command folds the accepted deviation back into a new versioned plan contract — version bumped, receipt on the record — then one more command emits a git-revert directive so the drifted change rolls back cleanly. From spotting drift to correcting the contract to emitting the revert, it all stays in the ledger, every step auditable, no post-mortem digging." },
+      "chips": ["› driftledger patch", "› driftledger rollback", "› 版本递增 · 留痕可查", "› 回滚指令只发不执行"]
     },
     {
       "title": { "zh": "不靠大模型对账", "en": "Reconciliation without an LLM" },
@@ -39,7 +40,7 @@
   "scene": { "kind": "mesh" },
   "cta": {
     "headline": { "zh": "把跑偏变成飞行记录", "en": "Turn drift into a flight record" },
-    "sub": { "zh": "一条命令装上，给长程智能体配上可对账、可修订的计划合约。", "en": "Install in one command — give your long-horizon agent a reconcilable, patchable plan contract." },
+    "sub": { "zh": "一条命令装上，给长程智能体配上可对账、可修订、可回滚的计划合约。", "en": "Install in one command — give your long-horizon agent a reconcilable, patchable, rollbackable plan contract." },
     "button": { "zh": "在 GitHub 上查看", "en": "View on GitHub" }
   },
   "footer": { "tag": { "zh": "长程智能体的飞行记录仪", "en": "The flight recorder for long-horizon agents" } }
