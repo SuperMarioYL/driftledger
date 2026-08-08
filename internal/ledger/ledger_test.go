@@ -189,6 +189,67 @@ func TestPatchNoDeviationsAppendsMarker(t *testing.T) {
 	}
 }
 
+// TestRollbackAppendsRollbackEntries (v0.3.0 impl-rollback-directive): Rollback
+// appends one op:rollback LedgerEntry per deviation so the ledger records the
+// loop close (closing the patch/accept/rollback loop alongside `driftledger rollback`).
+func TestRollbackAppendsRollbackEntries(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ledger.jsonl")
+	l := New(path)
+	drifting := dev("step-2", diff.KindDrifting)
+	drifting.Summary = "punted on statuses"
+	unex := dev("step-3", diff.KindUnexecuted)
+	if err := l.Rollback("0.1.0", []diff.Deviation{drifting, unex}); err != nil {
+		t.Fatalf("Rollback: %v", err)
+	}
+	entries, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("entries = %d, want 2", len(entries))
+	}
+	for i, e := range entries {
+		if e.Op != OpRollback {
+			t.Errorf("entries[%d].op = %q, want rollback", i, e.Op)
+		}
+		if e.PlanVersion != "0.1.0" {
+			t.Errorf("entries[%d].plan_version = %q, want 0.1.0", i, e.PlanVersion)
+		}
+		if e.TS.IsZero() {
+			t.Errorf("entries[%d].TS should be stamped now", i)
+		}
+	}
+	if entries[0].Deviation.StepID != "step-2" {
+		t.Errorf("entries[0].step_id = %q, want step-2", entries[0].Deviation.StepID)
+	}
+	if entries[1].Deviation.StepID != "step-3" {
+		t.Errorf("entries[1].step_id = %q, want step-3", entries[1].Deviation.StepID)
+	}
+}
+
+// TestRollbackNoDeviationsAppendsMarker (v0.3.0): with no deviations, Rollback
+// still appends a single marker entry so the ledger records the rollback event.
+func TestRollbackNoDeviationsAppendsMarker(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ledger.jsonl")
+	l := New(path)
+	if err := l.Rollback("0.1.0", nil); err != nil {
+		t.Fatalf("Rollback: %v", err)
+	}
+	entries, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("entries = %d, want 1 marker entry", len(entries))
+	}
+	if entries[0].Op != OpRollback {
+		t.Errorf("op = %q, want rollback", entries[0].Op)
+	}
+	if entries[0].PlanVersion != "0.1.0" {
+		t.Errorf("plan_version = %q, want 0.1.0", entries[0].PlanVersion)
+	}
+}
+
 func TestEntryJSONShape(t *testing.T) {
 	// The ledger line must stay `jq`-inspectable: top-level ts / plan_version /
 	// op / deviation, with deviation.step_id present.

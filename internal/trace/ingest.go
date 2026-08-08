@@ -75,14 +75,17 @@ func ParseReader(r io.Reader) ([]Event, int, error) {
 }
 
 // ParseFile reads a whole JSONL trace file. Missing files return nil + error.
-func ParseFile(path string) ([]Event, error) {
+// It returns the events, the count of malformed lines that were skipped (so a
+// caller can surface "N unparseable lines" rather than silently reconciling a
+// partial trace — v0.3.0 fix-trace-parsefile-silent-skip), and any scan error.
+func ParseFile(path string) ([]Event, int, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("trace: open %s: %w", path, err)
+		return nil, 0, fmt.Errorf("trace: open %s: %w", path, err)
 	}
 	defer f.Close()
-	events, _, err := ParseReader(f)
-	return events, err
+	events, skipped, err := ParseReader(f)
+	return events, skipped, err
 }
 
 // trimSpace strips ASCII whitespace (the JSON lines come from a shim that may

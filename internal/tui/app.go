@@ -191,7 +191,7 @@ func (m *Model) refresh() {
 	// path ParseFile's PARTIAL events fed into diff.Reconcile, silently
 	// rendering an incomplete deviation ledger as if nothing were wrong.
 	m.err = ""
-	events, err := trace.ParseFile(m.tracePath)
+	events, skipped, err := trace.ParseFile(m.tracePath)
 	if err != nil && !os.IsNotExist(err) {
 		// Surface the read error so View() can render it. On the too-long-line
 		// path, halt the partial reconcile: do not feed ParseFile's partial
@@ -202,6 +202,12 @@ func (m *Model) refresh() {
 			m.overlayAccepted()
 			return
 		}
+	}
+	// v0.3.0 fix-trace-parsefile-silent-skip: surface malformed-line count so
+	// a partial trace is never silently reconciled (a dropped step event would
+	// make that plan step show as unexecuted/drifting when it actually ran).
+	if skipped > 0 && err == nil {
+		m.err = fmt.Sprintf("trace read: %d unparseable line(s) skipped — deviation ledger may be partial", skipped)
 	}
 	m.deviations = diff.Reconcile(m.plan, events)
 	m.overlayAccepted()

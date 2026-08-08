@@ -119,6 +119,35 @@ func (l *Ledger) Patch(planVersion string, devs []diff.Deviation) error {
 	return nil
 }
 
+// Rollback appends a `rollback` LedgerEntry (op: rollback) for every accepted
+// deviation being reverted, closing the patch/accept/rollback loop. When there
+// are no accepted deviations it still appends a single marker entry so the
+// ledger records the rollback event. Realizes the base plan's m3_emit_rollback
+// milestone: `driftledger rollback` emits directives (never executes them) and
+// records the revert in the versioned audit trail. `pendingAccepted` treats an
+// OpRollback entry the same as OpPatch (resets the pending set).
+func (l *Ledger) Rollback(planVersion string, devs []diff.Deviation) error {
+	if len(devs) == 0 {
+		return l.Append(Entry{
+			PlanVersion: planVersion,
+			Op:          OpRollback,
+			Deviation: diff.Deviation{
+				Summary: fmt.Sprintf("rollback at %s (no accepted deviations)", planVersion),
+			},
+		})
+	}
+	for _, d := range devs {
+		if err := l.Append(Entry{
+			PlanVersion: planVersion,
+			Op:          OpRollback,
+			Deviation:   d,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Read returns every entry in the ledger file. A missing file returns nil +
 // nil — a fresh repo simply has no accepted deviations yet.
 func Read(path string) ([]Entry, error) {

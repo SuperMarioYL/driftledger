@@ -101,10 +101,10 @@ driftledger diff plan.md trace.jsonl
 # 按 `a` 可在飞行中接受一条漂移。
 driftledger watch plan.md trace.jsonl
 
-# （m2/m3 路线图）patch 把契约改写为新版本；rollback 发出 git-revert 指令——
-# 当前都是占位。
-driftledger patch
-driftledger rollback
+# patch 把契约改写为新版本以纳入已接受的偏差；rollback 发出 git-revert
+# + checkpoint-tag 指令（只发不执行）。v0.2.0 发布 patch；v0.3.0 发布 rollback——闭环完成。
+driftledger patch plan.md
+driftledger rollback plan.md
 ```
 
 **计划契约（`plan.md`）** —— markdown，每个步骤一个 `## <step-id>` 标题：
@@ -153,8 +153,8 @@ DriftLedger 无需配置文件——一切都是 CLI flag。两个输入文件�
 <h2><img src="https://api.iconify.design/tabler:map-2.svg?color=%230071E3&width=24" height="22" align="absmiddle" alt=""> 路线图</h2>
 
 - [x] **m1 — 对账 + 实时 TUI**：`diff` 把偏差打印到 stdout；`watch` 在 bubbletea TUI 里渲染实时偏差账本，按 `a` 接受。这是一个周末能交付、值得星标的那一刀。
-- [ ] **m2 — 改写契约**：`patch` 把 `plan.md` 改写为新的语义版本，捕获已接受的偏差；账本从此是带版本的审计轨迹。
-- [ ] **m3 — 发出回滚指令**：`rollback` 为已接受的偏差发出 `git revert` + checkpoint-tag 指令（只发不执行）。随附用于 HN 发布的 asciinema 录像。
+- [x] **m2 — 改写契约**：`patch` 把 `plan.md` 改写为新的语义版本，捕获已接受的偏差；账本从此是带版本的审计轨迹。*（v0.2.0 发布）*
+- [x] **m3 — 发出回滚指令**：`rollback` 为已接受的偏差发出 `git revert` + checkpoint-tag 指令（只发不执行）。随附用于 HN 发布的 asciinema 录像。*（v0.3.0 发布）*
 - [ ] Claude Code / deer-flow 转写格式的 trace shim；LLM 语义对账作为可选模式；漂移阈值告警。
 
 ### 与最接近的相邻工具对比

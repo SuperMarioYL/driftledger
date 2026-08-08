@@ -101,10 +101,11 @@ driftledger diff plan.md trace.jsonl
 # every new line, and lets you press `a` to accept a drift mid-flight.
 driftledger watch plan.md trace.jsonl
 
-# (m2/m3 roadmap) patch rewrites the contract to a new version; rollback emits a
-# git-revert directive — both are stubs today.
-driftledger patch
-driftledger rollback
+# patch rewrites the contract to a new version folding accepted deviations;
+# rollback emits a git-revert + checkpoint-tag directive (never executes it).
+# v0.2.0 ships patch; v0.3.0 ships rollback — the loop is closed.
+driftledger patch plan.md
+driftledger rollback plan.md
 ```
 
 **Plan contract (`plan.md`)** — markdown, one `## <step-id>` heading per step:
@@ -153,8 +154,8 @@ DriftLedger is config-file-free — everything is a CLI flag. The two file input
 <h2><img src="https://api.iconify.design/tabler:map-2.svg?color=%230071E3&width=24" height="22" align="absmiddle" alt=""> Roadmap</h2>
 
 - [x] **m1 — reconcile + live TUI**: `diff` prints deviations to stdout; `watch` renders the live deviation ledger in a bubbletea TUI with `a`-to-accept. The one-weekend, star-earning slice.
-- [ ] **m2 — patch the contract**: `patch` rewrites `plan.md` to a new semantic version capturing accepted deviations; the ledger becomes a versioned audit trail.
-- [ ] **m3 — emit rollback directive**: `rollback` emits a `git revert` + checkpoint-tag directive for accepted deviations (we emit, never execute). Ships with the asciinema cast for the HN launch.
+- [x] **m2 — patch the contract**: `patch` rewrites `plan.md` to a new semantic version capturing accepted deviations; the ledger becomes a versioned audit trail. *(shipped v0.2.0)*
+- [x] **m3 — emit rollback directive**: `rollback` emits a `git revert` + checkpoint-tag directive for accepted deviations (we emit, never execute). Ships with the asciinema cast for the HN launch. *(shipped v0.3.0)*
 - [ ] Trace shims for Claude Code / deer-flow transcripts; LLM-graded semantic diff as an opt-in mode; alerting on drift thresholds.
 
 ### vs the closest adjacent tool

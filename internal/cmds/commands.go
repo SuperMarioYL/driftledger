@@ -34,7 +34,7 @@ Reconciliation is structural (step-presence plus accept-criteria keyword match),
 deterministic, and re-run on every new trace line. The ledger is append-only
 JSONL you can inspect with jq. diff + watch ship m1; patch ships m2 (rewrite the
 contract from accepted deviations); rollback (m3) is stubbed on the roadmap.`,
-		Version: "0.2.0",
+		Version: "0.3.0",
 	}
 
 	root.AddCommand(newInitCmd())
@@ -112,9 +112,14 @@ func runDiff(planPath, tracePath, ledgerPath string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	events, err := trace.ParseFile(tracePath)
+	events, skipped, err := trace.ParseFile(tracePath)
 	if err != nil && !os.IsNotExist(err) {
 		return err
+	}
+	// v0.3.0 fix-trace-parsefile-silent-skip: surface malformed-line count so
+	// a partial trace is never silently reconciled.
+	if skipped > 0 {
+		fmt.Fprintf(os.Stderr, "warning: %d unparseable trace line(s) skipped — deviation set may be partial\n", skipped)
 	}
 	devs := diff.Reconcile(p, events)
 
@@ -222,13 +227,33 @@ func runPatch(planPath, ledgerPath string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(planPath, []byte(rewritten), 0o644); err != nil {
-		return fmt.Errorf("patch: write %s: %w", planPath, err)
+	// v0.3.0 fix-patch-plan-ledger-desync: write to a temp file first, append the
+	// ledger patch entry, THEN atomically rename — so a ledger-append failure
+	// discards the temp file and leaves the plan + pending set unchanged (no
+	// double-fold / second version bump on the next patch call).
+	tmp, err := os.CreateTemp(filepath.Dir(planPath), ".driftledger-patch-*")
+	if err != nil {
+		return fmt.Errorf("patch: temp: %w", err)
 	}
-
+	tmpPath := tmp.Name()
+	cleanup := func() { _ = os.Remove(tmpPath) }
+	if _, err := tmp.Write([]byte(rewritten)); err != nil {
+		tmp.Close()
+		cleanup()
+		return fmt.Errorf("patch: write temp: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		cleanup()
+		return fmt.Errorf("patch: close temp: %w", err)
+	}
 	l := ledger.New(ledgerPath)
 	if err := l.Patch(newVersion, pending); err != nil {
+		cleanup()
 		return fmt.Errorf("patch: ledger: %w", err)
+	}
+	if err := os.Rename(tmpPath, planPath); err != nil {
+		cleanup()
+		return fmt.Errorf("patch: rename %s: %w", planPath, err)
 	}
 
 	fmt.Fprintf(out, "patched %s → v%s", planPath, newVersion)
@@ -249,9 +274,13 @@ func pendingAccepted(entries []ledger.Entry) []diff.Deviation {
 	var pending []diff.Deviation
 	for _, e := range entries {
 		switch e.Op {
-		case ledger.OpPatch:
-			// A patch folds the pending accepts; reset so only accepts recorded
-			// after the most recent patch remain pending.
+		case ledger.OpPatch, ledger.OpRollback:
+			// A patch folds the pending accepts; a rollback reverts them. Both
+			// consume the pending set, so reset so only accepts recorded AFTER
+			// the most recent patch/rollback remain pending for the next call.
+			// (v0.3.0 impl-rollback-directive: OpRollback must reset exactly
+			// like OpPatch, or a post-rollback patch would re-fold reverted
+			// deviations.)
 			pending = nil
 		case ledger.OpAccept:
 			pending = replaceDeviation(pending, e.Deviation)
@@ -277,15 +306,71 @@ func replaceDeviation(ds []diff.Deviation, d diff.Deviation) []diff.Deviation {
 }
 
 func newRollbackCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "rollback",
-		Short: "(m3 roadmap) emit a git-revert + checkpoint-tag directive for accepted drift.",
+	var ledgerPath string
+	c := &cobra.Command{
+		Use:   "rollback <plan.md>",
+		Short: "Emit git-revert + checkpoint-tag directives for accepted deviations (never executes them).",
+		Long: `Emit a git-revert plus checkpoint-tag DIRECTIVE for each accepted
+deviation that landed since the last patch/rollback, and append a ` + "`rollback`" + `
+LedgerEntry to the deviation ledger. The directives are printed to stdout for
+you to review and run — DriftLedger NEVER executes them (auto-execution of
+rollbacks is out of scope). Closes the patch / accept / rollback loop.
+
+Accept a deviation first with ` + "`driftledger watch`" + ` (press ` + "`a`" + `), then run
+` + "`driftledger rollback plan.md`" + ` to emit the revert directive.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Fprintln(cmd.OutOrStdout(),
-				"rollback is an m3 roadmap item — it will emit (never execute) a `git revert`\n"+
-					"plus checkpoint-tag directive for accepted deviations, closing the\n"+
-					"patch / accept / rollback loop with an asciinema cast for the launch.")
-			return nil
+			return runRollback(args[0], ledgerPath, cmd.OutOrStdout())
 		},
 	}
+	c.Flags().StringVarP(&ledgerPath, "ledger", "l", DefaultLedgerPath, "deviation ledger path (rollback entry)")
+	return c
+}
+
+// runRollback realizes the base plan's m3_emit_rollback milestone: it reads the
+// pending accepted deviations from the append-only ledger, emits a git-revert +
+// checkpoint-tag DIRECTIVE per deviation to stdout (never executes them), and
+// appends a `rollback` LedgerEntry per deviation so the ledger records the loop
+// close. pendingAccepted treats an OpRollback entry the same as OpPatch (resets
+// the pending set), so a rollback consumes reverted accepts.
+func runRollback(planPath, ledgerPath string, out io.Writer) error {
+	p, err := plan.ParseFile(planPath)
+	if err != nil {
+		return err
+	}
+	entries, err := ledger.Read(ledgerPath)
+	if err != nil {
+		return err
+	}
+	pending := pendingAccepted(entries)
+
+	if len(pending) == 0 {
+		l := ledger.New(ledgerPath)
+		if err := l.Rollback(p.Version, nil); err != nil {
+			return fmt.Errorf("rollback: ledger: %w", err)
+		}
+		fmt.Fprintf(out, "no pending accepted deviations; rollback marker recorded at plan %s\n", p.Version)
+		return nil
+	}
+
+	fmt.Fprintf(out, "# DriftLedger rollback — plan %s, %d accepted deviation(s)\n", p.Version, len(pending))
+	fmt.Fprintln(out, "# Review each directive below, then run the git commands manually.")
+	fmt.Fprintln(out, "# (Auto-execution of rollbacks is out of scope — §6.)")
+	fmt.Fprintln(out, "------")
+	for _, d := range pending {
+		fmt.Fprint(out, diff.EmitGitRevertDirective(d))
+		fmt.Fprintln(out, "------")
+	}
+
+	l := ledger.New(ledgerPath)
+	if err := l.Rollback(p.Version, pending); err != nil {
+		return fmt.Errorf("rollback: ledger: %w", err)
+	}
+
+	word := "entries"
+	if len(pending) == 1 {
+		word = "entry"
+	}
+	fmt.Fprintf(out, "recorded %d rollback %s in %s\n", len(pending), word, ledgerPath)
+	return nil
 }

@@ -251,6 +251,36 @@ func tokenize(s string) []string {
 	return out
 }
 
+// EmitGitRevertDirective renders a deviation as a copy-pasteable git-revert +
+// checkpoint-tag DIRECTIVE. It EMITS the directive as a shell-comment block; it
+// NEVER executes it (the base plan keeps auto-execution of rollbacks out of
+// scope, §6 — the user reviews and runs the directive manually). Realizes the
+// base plan's m3_emit_rollback milestone alongside `driftledger rollback`.
+func EmitGitRevertDirective(d Deviation) string {
+	id := d.StepID
+	if id == "" {
+		id = "unplanned"
+	}
+	ts := "unknown"
+	if !d.FirstSeenTS.IsZero() {
+		ts = d.FirstSeenTS.Format("20060102-150405")
+	}
+	summary := d.Summary
+	if summary == "" {
+		summary = "(no summary)"
+	}
+	return fmt.Sprintf(`# DriftLedger rollback directive — review then run manually (auto-execution is out of scope, §6).
+#   step:      %s (kind: %s, first-seen: %s)
+#   summary:   %s
+#
+#   # 1. revert the commit that introduced the accepted drift:
+#   git revert --no-edit <commit-sha>
+#
+#   # 2. tag the checkpoint so the revert is auditable in the ledger:
+#   git tag driftledger-rollback-%s-%s
+`, id, d.Kind, ts, summary, id, ts)
+}
+
 // FormatDeviation renders one deviation as a single stdout line for the
 // `driftledger diff` command.
 func FormatDeviation(d Deviation) string {

@@ -92,7 +92,7 @@ func TestParseFile(t *testing.T) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	events, err := ParseFile(path)
+	events, _, err := ParseFile(path)
 	if err != nil {
 		t.Fatalf("ParseFile: %v", err)
 	}
@@ -102,7 +102,33 @@ func TestParseFile(t *testing.T) {
 }
 
 func TestParseFileMissing(t *testing.T) {
-	if _, err := ParseFile("/nonexistent/trace.jsonl"); err == nil {
+	if _, _, err := ParseFile("/nonexistent/trace.jsonl"); err == nil {
 		t.Fatal("expected error for missing file, got nil")
+	}
+}
+
+// TestParseFileSkippedCount (v0.3.0 fix-trace-parsefile-silent-skip) asserts that
+// ParseFile returns the count of malformed lines so a caller can surface "N
+// unparseable line(s) skipped" instead of silently reconciling a partial trace.
+func TestParseFileSkippedCount(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "trace.jsonl")
+	content := `{"ts":"2026-07-23T10:00:00Z","step_id":"step-1","action":"run","summary":"valid line"}
+this is not json
+{"ts":"2026-07-23T10:01:00Z","step_id":"step-2","action":"run","summary":"also valid"}
+{broken
+{"ts":"2026-07-23T10:02:00Z","step_id":"step-3","action":"run","summary":"third valid"}`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	events, skipped, err := ParseFile(path)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	if len(events) != 3 {
+		t.Fatalf("events = %d, want 3 valid", len(events))
+	}
+	if skipped != 2 {
+		t.Fatalf("skipped = %d, want 2 malformed", skipped)
 	}
 }
