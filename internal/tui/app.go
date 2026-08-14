@@ -191,7 +191,7 @@ func (m *Model) refresh() {
 	// path ParseFile's PARTIAL events fed into diff.Reconcile, silently
 	// rendering an incomplete deviation ledger as if nothing were wrong.
 	m.err = ""
-	events, skipped, err := trace.ParseFile(m.tracePath)
+	events, skipped, outOfOrder, err := trace.ParseFile(m.tracePath)
 	if err != nil && !os.IsNotExist(err) {
 		// Surface the read error so View() can render it. On the too-long-line
 		// path, halt the partial reconcile: do not feed ParseFile's partial
@@ -208,6 +208,17 @@ func (m *Model) refresh() {
 	// make that plan step show as unexecuted/drifting when it actually ran).
 	if skipped > 0 && err == nil {
 		m.err = fmt.Sprintf("trace read: %d unparseable line(s) skipped — deviation ledger may be partial", skipped)
+	}
+	// v0.4.0 feat-trace-out-of-order-ts: surface out-of-order events (clock
+	// skew / reordered append) so the ledger does not silently mis-rank
+	// first-seen. First-seen still uses the earliest ts (diff.firstTS).
+	if outOfOrder > 0 && err == nil {
+		ood := fmt.Sprintf("trace read: %d out-of-order event(s) — first-seen still uses the earliest ts", outOfOrder)
+		if m.err == "" {
+			m.err = ood
+		} else {
+			m.err = m.err + "; " + fmt.Sprintf("%d out-of-order event(s)", outOfOrder)
+		}
 	}
 	m.deviations = diff.Reconcile(m.plan, events)
 	m.overlayAccepted()

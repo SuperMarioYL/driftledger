@@ -2,6 +2,7 @@ package cmds
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -324,5 +325,102 @@ func TestRunPatchAtomicOnLedgerFailure(t *testing.T) {
 	}
 	if !bytes.Equal(after, origPlan) {
 		t.Errorf("plan file changed despite ledger failure (desync!):\n--- want ---\n%s\n--- got ---\n%s", origPlan, after)
+	}
+}
+
+// TestRunDiffJSON (v0.4.0 feat-diff-json-output): `driftledger diff --json`
+// emits a JSON array of deviations that round-trips into []diff.Deviation so
+// CI / another agent can consume drift state programmatically.
+func TestRunDiffJSON(t *testing.T) {
+	dir := t.TempDir()
+	planPath := filepath.Join(dir, "plan.md")
+	tracePath := filepath.Join(dir, "trace.jsonl")
+	ledgerPath := filepath.Join(dir, "ledger.jsonl")
+	if err := os.WriteFile(planPath, []byte(plan.DefaultPlanMarkdown), 0o644); err != nil {
+		t.Fatalf("write plan: %v", err)
+	}
+	trace := `{"ts":"2026-07-23T10:00:00Z","step_id":"step-1","action":"run","summary":"go module initialized and cmd package present"}
+{"ts":"2026-07-23T10:01:00Z","action":"note","summary":"exploring, no step id"}`
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatalf("write trace: %v", err)
+	}
+	var out bytes.Buffer
+	if err := runDiff(planPath, tracePath, ledgerPath, true, false, &out); err != nil {
+		t.Fatalf("runDiff --json: %v", err)
+	}
+	var devs []diff.Deviation
+	if err := json.Unmarshal(out.Bytes(), &devs); err != nil {
+		t.Fatalf("--json output is not valid JSON / does not round-trip into []Deviation: %v\noutput:\n%s", err, out.String())
+	}
+	// 3 plan steps → 3 deviations (step-1 matched, step-2/3 unexecuted) + 1 extra
+	// = 4. The exact kinds are reconciler-owned; here we assert the contract:
+	// valid JSON, round-trips, and the step-1 deviation is present + matched.
+	if len(devs) < 3 {
+		t.Fatalf("deviations = %d, want >= 3 (one per plan step)", len(devs))
+	}
+	var step1 *diff.Deviation
+	for i := range devs {
+		if devs[i].StepID == "step-1" {
+			step1 = &devs[i]
+		}
+	}
+	if step1 == nil {
+		t.Fatal("step-1 deviation missing from --json output")
+	}
+	if step1.Kind != diff.KindMatched {
+		t.Errorf("step-1 kind = %q, want matched (its accept criteria appear in the trace)", step1.Kind)
+	}
+}
+
+// TestRunPatchVPrefixedNoDoubleV (v0.4.0 fix-patch-version-double-v): a plan
+// whose version is v-prefixed (e.g. "v0.1.0", the common semver convention)
+// patches to a SINGLE "v0.1.1" in both stdout and the accepted annotation —
+// never "vv0.1.1".
+func TestRunPatchVPrefixedNoDoubleV(t *testing.T) {
+	dir := t.TempDir()
+	planPath := filepath.Join(dir, "plan.md")
+	ledgerPath := filepath.Join(dir, "ledger.jsonl")
+	planMD := `# Plan: demo
+
+version: v0.1.0
+
+## step-1
+intent: Scaffold
+accept: go module
+
+## step-2
+intent: Reconciler
+accept: matched
+`
+	if err := os.WriteFile(planPath, []byte(planMD), 0o644); err != nil {
+		t.Fatalf("write plan: %v", err)
+	}
+	l := ledger.New(ledgerPath)
+	if err := l.Accept("v0.1.0", diff.Deviation{
+		StepID:  "step-2",
+		Kind:    diff.KindDrifting,
+		Summary: "punted on statuses",
+	}); err != nil {
+		t.Fatalf("Accept: %v", err)
+	}
+	var out bytes.Buffer
+	if err := runPatch(planPath, ledgerPath, &out); err != nil {
+		t.Fatalf("runPatch: %v", err)
+	}
+	if !bytes.Contains(out.Bytes(), []byte("v0.1.1")) {
+		t.Errorf("stdout missing v0.1.1:\n%s", out.String())
+	}
+	if bytes.Contains(out.Bytes(), []byte("vv0.1.1")) {
+		t.Errorf("stdout has DOUBLE-v (vv0.1.1) — the v0.4.0 fix regressed:\n%s", out.String())
+	}
+	rewritten, err := os.ReadFile(planPath)
+	if err != nil {
+		t.Fatalf("read patched plan: %v", err)
+	}
+	if bytes.Contains(rewritten, []byte("vv0.1.1")) {
+		t.Errorf("patched plan has DOUBLE-v annotation (vv0.1.1):\n%s", rewritten)
+	}
+	if !bytes.Contains(rewritten, []byte("folded into v0.1.1")) {
+		t.Errorf("patched plan missing single-v accepted annotation 'folded into v0.1.1':\n%s", rewritten)
 	}
 }

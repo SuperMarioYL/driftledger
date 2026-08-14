@@ -52,11 +52,16 @@ func ParseLine(line string) (Event, error) {
 // ParseReader reads every JSONL line from r and returns the events in order.
 // Malformed lines are skipped with a count returned alongside the events so a
 // caller can surface "3 unparseable lines" without aborting the whole stream.
-func ParseReader(r io.Reader) ([]Event, int, error) {
+// outOfOrder counts events whose ts precedes the immediately-prior event's ts
+// (a shim clock skew or a reordered append) so a caller can surface "N
+// out-of-order trace event(s)" — v0.4.0 feat-trace-out-of-order-ts.
+func ParseReader(r io.Reader) ([]Event, int, int, error) {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	var events []Event
 	skipped := 0
+	outOfOrder := 0
+	var prev time.Time
 	for sc.Scan() {
 		ev, err := ParseLine(sc.Text())
 		if err == io.EOF {
@@ -66,26 +71,31 @@ func ParseReader(r io.Reader) ([]Event, int, error) {
 			skipped++
 			continue
 		}
+		if !prev.IsZero() && ev.TS.Before(prev) {
+			outOfOrder++
+		}
+		prev = ev.TS
 		events = append(events, ev)
 	}
 	if err := sc.Err(); err != nil {
-		return events, skipped, fmt.Errorf("trace: scan: %w", err)
+		return events, skipped, outOfOrder, fmt.Errorf("trace: scan: %w", err)
 	}
-	return events, skipped, nil
+	return events, skipped, outOfOrder, nil
 }
 
 // ParseFile reads a whole JSONL trace file. Missing files return nil + error.
 // It returns the events, the count of malformed lines that were skipped (so a
 // caller can surface "N unparseable lines" rather than silently reconciling a
-// partial trace — v0.3.0 fix-trace-parsefile-silent-skip), and any scan error.
-func ParseFile(path string) ([]Event, int, error) {
+// partial trace — v0.3.0 fix-trace-parsefile-silent-skip), the count of
+// out-of-order events (v0.4.0 feat-trace-out-of-order-ts), and any scan error.
+func ParseFile(path string) ([]Event, int, int, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, 0, fmt.Errorf("trace: open %s: %w", path, err)
+		return nil, 0, 0, fmt.Errorf("trace: open %s: %w", path, err)
 	}
 	defer f.Close()
-	events, skipped, err := ParseReader(f)
-	return events, skipped, err
+	events, skipped, outOfOrder, err := ParseReader(f)
+	return events, skipped, outOfOrder, err
 }
 
 // trimSpace strips ASCII whitespace (the JSON lines come from a shim that may

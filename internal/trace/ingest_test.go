@@ -69,7 +69,7 @@ func TestParseReader(t *testing.T) {
 		`{"ts":"2026-07-23T10:02:00Z","step_id":"step-3","action":"run","summary":"writing tests"}`,
 		"",
 	}, "\n")
-	events, skipped, err := ParseReader(strings.NewReader(input))
+	events, skipped, _, err := ParseReader(strings.NewReader(input))
 	if err != nil {
 		t.Fatalf("ParseReader: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestParseFile(t *testing.T) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	events, _, err := ParseFile(path)
+	events, _, _, err := ParseFile(path)
 	if err != nil {
 		t.Fatalf("ParseFile: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestParseFile(t *testing.T) {
 }
 
 func TestParseFileMissing(t *testing.T) {
-	if _, _, err := ParseFile("/nonexistent/trace.jsonl"); err == nil {
+	if _, _, _, err := ParseFile("/nonexistent/trace.jsonl"); err == nil {
 		t.Fatal("expected error for missing file, got nil")
 	}
 }
@@ -121,7 +121,7 @@ this is not json
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	events, skipped, err := ParseFile(path)
+	events, skipped, _, err := ParseFile(path)
 	if err != nil {
 		t.Fatalf("ParseFile: %v", err)
 	}
@@ -130,5 +130,36 @@ this is not json
 	}
 	if skipped != 2 {
 		t.Fatalf("skipped = %d, want 2 malformed", skipped)
+	}
+}
+
+// TestParseReaderOutOfOrder (v0.4.0 feat-trace-out-of-order-ts) asserts that an
+// event whose ts precedes the immediately-prior event's ts is counted as
+// out-of-order, while first-seen ranking in diff.Reconcile still uses the
+// earliest ts.
+func TestParseReaderOutOfOrder(t *testing.T) {
+	input := strings.Join([]string{
+		`{"ts":"2026-07-23T10:00:00Z","step_id":"step-1","action":"run","summary":"first"}`,
+		`{"ts":"2026-07-23T10:05:00Z","step_id":"step-2","action":"run","summary":"second"}`,
+		`{"ts":"2026-07-23T10:02:00Z","step_id":"step-3","action":"run","summary":"skewed back"}`,
+		`{"ts":"2026-07-23T10:06:00Z","step_id":"step-4","action":"run","summary":"fourth"}`,
+	}, "\n")
+	events, skipped, outOfOrder, err := ParseReader(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("ParseReader: %v", err)
+	}
+	if len(events) != 4 {
+		t.Fatalf("events = %d, want 4", len(events))
+	}
+	if skipped != 0 {
+		t.Errorf("skipped = %d, want 0", skipped)
+	}
+	if outOfOrder != 1 {
+		t.Errorf("outOfOrder = %d, want 1 (the 10:02 event precedes the prior 10:05)", outOfOrder)
+	}
+	// first-seen for step-3 is its own ts (10:02), the earliest among its events.
+	want := time.Date(2026, 7, 23, 10, 2, 0, 0, time.UTC)
+	if !events[2].TS.Equal(want) {
+		t.Errorf("step-3 ts = %v, want %v", events[2].TS, want)
 	}
 }

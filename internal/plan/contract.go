@@ -173,16 +173,23 @@ type AcceptedFold struct {
 }
 
 // BumpVersion increments the patch component of a semantic version string
-// ("0.1.0" -> "0.1.1"). Each accepted-deviation fold is a small contract
-// revision, so the patch component is the conservative bump; repeated patches
-// accumulate (0.1.1, 0.1.2, ...). A version that is not three numeric
-// dot-separated components falls back to "<v>.patch1" so the bump is always
-// observable rather than silently dropping a malformed version.
+// ("0.1.0" -> "0.1.1", "v0.1.0" -> "0.1.2"). Each accepted-deviation fold is a
+// small contract revision, so the patch component is the conservative bump;
+// repeated patches accumulate (0.1.1, 0.1.2, ...). A version that is not three
+// numeric dot-separated components falls back to "<v>.patch1" so the bump is
+// always observable rather than silently dropping a malformed version.
+//
+// The result is always BARE semver (no leading "v"): callers that print a
+// version to a user (e.g. runPatch's "patched %s -> v%s" and the accepted
+// annotation's "folded into v%s") prepend exactly one "v". Preserving a leading
+// "v" here would make those callers emit "vv0.3.1" for a v-prefixed plan
+// version (v0.4.0 fix-patch-version-double-v).
 func BumpVersion(v string) string {
 	v = strings.TrimSpace(v)
 	if v == "" {
 		v = "0.0.0"
 	}
+	v = strings.TrimPrefix(v, "v")
 	parts := strings.Split(v, ".")
 	if len(parts) == 3 {
 		if n, err := strconv.Atoi(parts[2]); err == nil {

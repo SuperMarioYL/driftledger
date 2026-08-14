@@ -3,6 +3,7 @@
 package cmds
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -34,7 +35,7 @@ Reconciliation is structural (step-presence plus accept-criteria keyword match),
 deterministic, and re-run on every new trace line. The ledger is append-only
 JSONL you can inspect with jq. diff + watch ship m1; patch ships m2 (rewrite the
 contract from accepted deviations); rollback (m3) is stubbed on the roadmap.`,
-		Version: "0.3.0",
+		Version: "0.4.0",
 	}
 
 	root.AddCommand(newInitCmd())
@@ -94,25 +95,31 @@ func writePlan(path string, force bool, out io.Writer) error {
 // --- diff ----------------------------------------------------------------
 
 func newDiffCmd() *cobra.Command {
-	var ledgerPath string
+	var (
+		ledgerPath  string
+		jsonOut     bool
+		jsonPretty  bool
+	)
 	c := &cobra.Command{
 		Use:   "diff <plan.md> <trace.jsonl>",
 		Short: "Print plan-vs-trace deviations to stdout (non-interactive).",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDiff(args[0], args[1], ledgerPath, cmd.OutOrStdout())
+			return runDiff(args[0], args[1], ledgerPath, jsonOut, jsonPretty, cmd.OutOrStdout())
 		},
 	}
 	c.Flags().StringVarP(&ledgerPath, "ledger", "l", DefaultLedgerPath, "deviation ledger path (accept overlay)")
+	c.Flags().BoolVar(&jsonOut, "json", false, "emit deviations as a JSON array on stdout (machine-readable)")
+	c.Flags().BoolVar(&jsonPretty, "json-pretty", false, "pretty-print the --json output (indent 2 spaces)")
 	return c
 }
 
-func runDiff(planPath, tracePath, ledgerPath string, out io.Writer) error {
+func runDiff(planPath, tracePath, ledgerPath string, jsonOut, jsonPretty bool, out io.Writer) error {
 	p, err := plan.ParseFile(planPath)
 	if err != nil {
 		return err
 	}
-	events, skipped, err := trace.ParseFile(tracePath)
+	events, skipped, outOfOrder, err := trace.ParseFile(tracePath)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -120,6 +127,11 @@ func runDiff(planPath, tracePath, ledgerPath string, out io.Writer) error {
 	// a partial trace is never silently reconciled.
 	if skipped > 0 {
 		fmt.Fprintf(os.Stderr, "warning: %d unparseable trace line(s) skipped — deviation set may be partial\n", skipped)
+	}
+	// v0.4.0 feat-trace-out-of-order-ts: surface out-of-order events so a
+	// clock-skewed/reordered trace cannot silently mis-rank first-seen.
+	if outOfOrder > 0 {
+		fmt.Fprintf(os.Stderr, "warning: %d out-of-order trace event(s) (ts precedes the prior event); first-seen ranking still uses the earliest ts\n", outOfOrder)
 	}
 	devs := diff.Reconcile(p, events)
 
@@ -130,6 +142,19 @@ func runDiff(planPath, tracePath, ledgerPath string, out io.Writer) error {
 		accepted = nil
 	}
 	devs = diff.OverlayAccepted(devs, accepted)
+
+	// v0.4.0 feat-diff-json-output: machine-readable deviation set for CI /
+	// agent consumers.
+	if jsonOut {
+		enc := json.NewEncoder(out)
+		if jsonPretty {
+			enc.SetIndent("", "  ")
+		}
+		if err := enc.Encode(devs); err != nil {
+			return fmt.Errorf("diff: encode json: %w", err)
+		}
+		return nil
+	}
 
 	fmt.Fprintf(out, "plan %s  %d steps  %d trace events\n", p.Version, len(p.Steps), len(events))
 	fmt.Fprintln(out, "------")
