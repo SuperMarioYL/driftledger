@@ -183,8 +183,19 @@ func Read(path string) ([]Entry, error) {
 }
 
 // AcceptedStepIDs reads the ledger and returns the set of plan step ids that
-// have an `accept` entry. The watch TUI overlays this onto a fresh reconcile
-// so a previously-accepted drift stays accepted as new trace lines arrive.
+// have an `accept` entry recorded SINCE the most recent patch/rollback. The
+// watch TUI overlays this onto a fresh reconcile so a previously-accepted
+// drift stays accepted as new trace lines arrive.
+//
+// A patch folds the pending accepts into a new plan version and a rollback
+// reverts them; both CONSUME the accepted set, so the overlay is reset on an
+// OpPatch/OpRollback entry — mirroring pendingAccepted's reset — so only
+// accepts recorded since the last patch/rollback remain. Without this reset a
+// step accepted pre-patch would stay marked [accepted] in the diff/watch
+// overlay after the patch, masking post-patch drift on the same step as
+// already-accepted and blocking re-acceptance — breaking the
+// accept→patch→accept loop that is the product's core workflow
+// (v0.5.0 fix-accepted-overlay-leaks-past-patch).
 func AcceptedStepIDs(path string) (map[string]bool, error) {
 	entries, err := Read(path)
 	if err != nil {
@@ -192,8 +203,15 @@ func AcceptedStepIDs(path string) (map[string]bool, error) {
 	}
 	accepted := make(map[string]bool)
 	for _, e := range entries {
-		if e.Op == OpAccept && e.Deviation.StepID != "" {
-			accepted[e.Deviation.StepID] = true
+		switch e.Op {
+		case OpPatch, OpRollback:
+			// The patch/rollback consumed the pending accepts; only accepts
+			// recorded AFTER this entry remain in the overlay set.
+			accepted = make(map[string]bool)
+		case OpAccept:
+			if e.Deviation.StepID != "" {
+				accepted[e.Deviation.StepID] = true
+			}
 		}
 	}
 	return accepted, nil

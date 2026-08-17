@@ -282,3 +282,67 @@ func contains(s, sub string) bool {
 		return false
 	}())
 }
+
+// TestRefreshPreservesDeviationsOnTraceReadError (v0.5.0
+// fix-tui-refresh-wipes-on-trace-error): a transient non-NotExist trace-read
+// error (here a permission error from os.Open after chmod 0) must preserve
+// the last-known-good deviation set and surface the error — NOT fall through
+// to diff.Reconcile with nil events, which would silently wipe the live
+// ledger to all-unexecuted. The guard previously early-returned only for
+// bufio.ErrTooLong, so a permission/IO error fell through and wiped.
+func TestRefreshPreservesDeviationsOnTraceReadError(t *testing.T) {
+	dir := t.TempDir()
+	planPath := filepath.Join(dir, "plan.md")
+	tracePath := filepath.Join(dir, "trace.jsonl")
+	ledgerPath := filepath.Join(dir, "ledger.jsonl")
+	writeFile(t, planPath, planMD)
+	// A good first reconcile: step-1 matched, step-2/3 unexecuted.
+	goodTrace := traceLine("2026-07-23T10:00:00Z", "step-1", "run",
+		"initialized go module and added cmd package")
+	writeFile(t, tracePath, goodTrace)
+	m, err := New(planPath, tracePath, ledgerPath)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	// Precondition: step-1 painted matched on the good first reconcile.
+	if step1 := devFor(m.deviations, "step-1"); step1 == nil || step1.Kind != diff.KindMatched {
+		t.Fatalf("precondition: step-1 should be matched after good reconcile, got %v", m.deviations)
+	}
+
+	// Grow the trace file so the size short-circuit does not skip the read,
+	// then make it unreadable (chmod 0) — a transient permission/IO error
+	// from os.Open, the exact gap the fix targets.
+	writeFile(t, tracePath, goodTrace+"\n")
+	if err := os.Chmod(tracePath, 0o000); err != nil {
+		t.Fatalf("chmod trace: %v", err)
+	}
+	defer os.Chmod(tracePath, 0o644) // restore so TempDir cleanup works
+
+	m.refresh()
+
+	// (a) the read failure must surface in m.err — this also guards against a
+	// root-bypass silently making the file readable (the test would fail
+	// loudly instead of falsely passing).
+	if m.err == "" {
+		t.Fatal("expected a trace-read error to surface in m.err, got empty (chmod 0 did not block the read — running as root?)")
+	}
+	if !contains(m.err, "trace read") {
+		t.Errorf("m.err should mention the trace read failure: %q", m.err)
+	}
+	// (b) the last-known-good deviation set is PRESERVED — step-1 stays
+	// matched instead of being wiped to unexecuted by a Reconcile(plan, nil).
+	if step1 := devFor(m.deviations, "step-1"); step1 == nil || step1.Kind != diff.KindMatched {
+		t.Fatalf("step-1 should stay matched (last-known-good preserved), got %v", m.deviations)
+	}
+}
+
+// devFor returns the deviation for id (or nil if absent) so a test can assert
+// on a single step without re-walking the slice.
+func devFor(devs []diff.Deviation, id string) *diff.Deviation {
+	for i := range devs {
+		if devs[i].StepID == id {
+			return &devs[i]
+		}
+	}
+	return nil
+}

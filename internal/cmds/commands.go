@@ -21,6 +21,14 @@ import (
 // DefaultLedgerPath is the append-only ledger a `jq` can inspect after a run.
 const DefaultLedgerPath = "driftledger.ledger.jsonl"
 
+// renameFn is os.Rename in production; tests may swap it to force a rename
+// failure so the rename-failure ledger rollback (v0.5.0
+// fix-patch-rename-failure-desync) is exercised without a platform-specific
+// filesystem trick (CreateTemp and Rename share the same directory write
+// permission, so a portable same-directory rename failure is otherwise
+// unforceable from outside the function).
+var renameFn = os.Rename
+
 // NewRootCmd builds the top-level `driftledger` command. It is constructed in a
 // function so tests and main.go share one wiring point.
 func NewRootCmd() *cobra.Command {
@@ -35,7 +43,7 @@ Reconciliation is structural (step-presence plus accept-criteria keyword match),
 deterministic, and re-run on every new trace line. The ledger is append-only
 JSONL you can inspect with jq. diff + watch ship m1; patch ships m2 (rewrite the
 contract from accepted deviations); rollback (m3) is stubbed on the roadmap.`,
-		Version: "0.4.0",
+		Version: "0.5.0",
 	}
 
 	root.AddCommand(newInitCmd())
@@ -43,6 +51,7 @@ contract from accepted deviations); rollback (m3) is stubbed on the roadmap.`,
 	root.AddCommand(newWatchCmd())
 	root.AddCommand(newPatchCmd())
 	root.AddCommand(newRollbackCmd())
+	root.AddCommand(newLogCmd())
 	return root
 }
 
@@ -99,22 +108,27 @@ func newDiffCmd() *cobra.Command {
 		ledgerPath  string
 		jsonOut     bool
 		jsonPretty  bool
+		failOnDrift bool
 	)
 	c := &cobra.Command{
 		Use:   "diff <plan.md> <trace.jsonl>",
 		Short: "Print plan-vs-trace deviations to stdout (non-interactive).",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDiff(args[0], args[1], ledgerPath, jsonOut, jsonPretty, cmd.OutOrStdout())
+			return runDiff(args[0], args[1], ledgerPath, jsonOut, jsonPretty, failOnDrift, cmd.OutOrStdout())
 		},
+		// SilenceUsage so a --fail-on-drift exit (or a read error) does not
+		// dump the help text alongside the deviation output.
+		SilenceUsage: true,
 	}
 	c.Flags().StringVarP(&ledgerPath, "ledger", "l", DefaultLedgerPath, "deviation ledger path (accept overlay)")
 	c.Flags().BoolVar(&jsonOut, "json", false, "emit deviations as a JSON array on stdout (machine-readable)")
 	c.Flags().BoolVar(&jsonPretty, "json-pretty", false, "pretty-print the --json output (indent 2 spaces)")
+	c.Flags().BoolVar(&failOnDrift, "fail-on-drift", false, "exit non-zero when any unaccepted deviation (drifting/unexecuted/extra) is present (CI gate)")
 	return c
 }
 
-func runDiff(planPath, tracePath, ledgerPath string, jsonOut, jsonPretty bool, out io.Writer) error {
+func runDiff(planPath, tracePath, ledgerPath string, jsonOut, jsonPretty, failOnDrift bool, out io.Writer) error {
 	p, err := plan.ParseFile(planPath)
 	if err != nil {
 		return err
@@ -143,6 +157,22 @@ func runDiff(planPath, tracePath, ledgerPath string, jsonOut, jsonPretty bool, o
 	}
 	devs = diff.OverlayAccepted(devs, accepted)
 
+	// v0.5.0 feat-diff-exit-code-on-drift: the CI complement to the v0.4.0
+	// --json flag — a pipeline consumes the exit code, not the JSON, to fail
+	// the build on plan drift. Matched steps, and steps already folded by a
+	// patch/accepted overlay (d.Accepted), do not trip the gate; unaccepted
+	// drifting/unexecuted/extra do.
+	driftCount := 0
+	for _, d := range devs {
+		if d.Accepted {
+			continue
+		}
+		switch d.Kind {
+		case diff.KindDrifting, diff.KindUnexecuted, diff.KindExtra:
+			driftCount++
+		}
+	}
+
 	// v0.4.0 feat-diff-json-output: machine-readable deviation set for CI /
 	// agent consumers.
 	if jsonOut {
@@ -152,6 +182,9 @@ func runDiff(planPath, tracePath, ledgerPath string, jsonOut, jsonPretty bool, o
 		}
 		if err := enc.Encode(devs); err != nil {
 			return fmt.Errorf("diff: encode json: %w", err)
+		}
+		if failOnDrift && driftCount > 0 {
+			return fmt.Errorf("diff: %d unaccepted deviation(s) (drifting/unexecuted/extra)", driftCount)
 		}
 		return nil
 	}
@@ -175,6 +208,9 @@ func runDiff(planPath, tracePath, ledgerPath string, jsonOut, jsonPretty bool, o
 	fmt.Fprintln(out, "------")
 	fmt.Fprintf(out, "matched:%d  drifting:%d  unexecuted:%d  extra:%d\n",
 		counts[0], counts[1], counts[2], counts[3])
+	if failOnDrift && driftCount > 0 {
+		return fmt.Errorf("diff: %d unaccepted deviation(s) (drifting/unexecuted/extra)", driftCount)
+	}
 	return nil
 }
 
@@ -272,11 +308,31 @@ func runPatch(planPath, ledgerPath string, out io.Writer) error {
 		return fmt.Errorf("patch: close temp: %w", err)
 	}
 	l := ledger.New(ledgerPath)
+	// v0.5.0 fix-patch-rename-failure-desync: capture the ledger file size
+	// before appending the patch entries so a rename failure (plan directory
+	// non-writable between CreateTemp and Rename, or a filesystem/SIGINT edge)
+	// can roll back the just-appended patch entries. Without this rollback the
+	// ledger records patch entries stamping a version the plan never reached,
+	// desyncing plan+ledger — the exact failure mode fix-patch-plan-ledger-desync
+	// closed for the l.Patch failure path.
+	prePatchSize := int64(-1)
+	if fi, statErr := os.Stat(ledgerPath); statErr == nil {
+		prePatchSize = fi.Size()
+	}
 	if err := l.Patch(newVersion, pending); err != nil {
 		cleanup()
 		return fmt.Errorf("patch: ledger: %w", err)
 	}
-	if err := os.Rename(tmpPath, planPath); err != nil {
+	if err := renameFn(tmpPath, planPath); err != nil {
+		// Roll back the just-appended patch entries so the ledger does not
+		// record a version the plan never reached (plan+ledger stay in sync).
+		if prePatchSize >= 0 {
+			_ = os.Truncate(ledgerPath, prePatchSize)
+		} else {
+			// Ledger did not exist before the patch; remove the freshly-created
+			// file so the filesystem state matches the pre-patch state.
+			_ = os.Remove(ledgerPath)
+		}
 		cleanup()
 		return fmt.Errorf("patch: rename %s: %w", planPath, err)
 	}
@@ -398,4 +454,101 @@ func runRollback(planPath, ledgerPath string, out io.Writer) error {
 	}
 	fmt.Fprintf(out, "recorded %d rollback %s in %s\n", len(pending), word, ledgerPath)
 	return nil
+}
+
+// --- log (v0.5.0 feat-ledger-log-command) -------------------------------
+
+// newLogCmd wires `driftledger log`, a native viewer for the append-only
+// ledger. The ledger (./driftledger.ledger.jsonl) is the product's
+// versioned-audit-trail primitive, but before v0.5.0 the CLI exposed no
+// human-readable viewer — only "any jq can inspect" (base plan §4). A native
+// `log` subcommand makes the accept→patch→accept audit trail — the very loop
+// the v0.5.0 fix milestones harden — directly inspectable without jq, and
+// gives the §2 versioned-audit-trail primitive a first-class viewer.
+func newLogCmd() *cobra.Command {
+	var (
+		ledgerPath string
+		jsonOut    bool
+		jsonPretty bool
+	)
+	c := &cobra.Command{
+		Use:   "log",
+		Short: "Pretty-print the append-only ledger as a human-readable audit trail.",
+		Long: `Read the append-only deviation ledger and pretty-print one line per
+LedgerEntry (ts, op, plan_version, step_id, kind, and accepted /
+patched_to_version where present) so the accept→patch→rollback audit trail is
+inspectable without jq.
+
+Pass --json to emit the LedgerEntry slice as a JSON array for machine consumers.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runLog(ledgerPath, jsonOut, jsonPretty, cmd.OutOrStdout())
+		},
+	}
+	c.Flags().StringVarP(&ledgerPath, "ledger", "l", DefaultLedgerPath, "deviation ledger path")
+	c.Flags().BoolVar(&jsonOut, "json", false, "emit the ledger as a JSON array (machine-readable)")
+	c.Flags().BoolVar(&jsonPretty, "json-pretty", false, "pretty-print the --json output (indent 2 spaces)")
+	return c
+}
+
+// runLog reads the ledger JSONL via ledger.Read and pretty-prints one line per
+// LedgerEntry in append order (which is the audit order: accept → patch →
+// rollback). A missing ledger is a fresh run — it prints a zero-entry summary
+// rather than erroring, mirroring ledger.Read's nil/nil contract.
+func runLog(ledgerPath string, jsonOut, jsonPretty bool, out io.Writer) error {
+	entries, err := ledger.Read(ledgerPath)
+	if err != nil {
+		return err
+	}
+	if jsonOut {
+		enc := json.NewEncoder(out)
+		if jsonPretty {
+			enc.SetIndent("", "  ")
+		}
+		if err := enc.Encode(entries); err != nil {
+			return fmt.Errorf("log: encode json: %w", err)
+		}
+		return nil
+	}
+	fmt.Fprintf(out, "ledger %s — %d entr%s\n", ledgerPath, len(entries), entryPlural(len(entries)))
+	fmt.Fprintln(out, "------")
+	for _, e := range entries {
+		fmt.Fprintln(out, formatLedgerEntry(e))
+	}
+	return nil
+}
+
+func entryPlural(n int) string {
+	if n == 1 {
+		return "y"
+	}
+	return "ies"
+}
+
+// formatLedgerEntry renders one LedgerEntry as a single stdout line: ts, op,
+// plan_version, step_id, kind, summary, and accepted / patched_to_version
+// where present. The patch marker entry (no deviation) renders with a dash
+// step/kind so the row stays scannable.
+func formatLedgerEntry(e ledger.Entry) string {
+	ts := "—"
+	if !e.TS.IsZero() {
+		ts = e.TS.Format("2006-01-02 15:04:05")
+	}
+	stepID := e.Deviation.StepID
+	if stepID == "" {
+		stepID = "—"
+	}
+	kind := string(e.Deviation.Kind)
+	if kind == "" {
+		kind = "—"
+	}
+	row := fmt.Sprintf("%s  %-8s  plan:%-12s  step:%-14s  kind:%-11s  %s",
+		ts, e.Op, e.PlanVersion, stepID, kind, e.Deviation.Summary)
+	if e.Deviation.Accepted {
+		row += "  [accepted]"
+	}
+	if e.Deviation.PatchedToVersion != "" {
+		row += fmt.Sprintf("  patched_to:%s", e.Deviation.PatchedToVersion)
+	}
+	return row
 }

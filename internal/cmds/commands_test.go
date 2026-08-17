@@ -3,6 +3,7 @@ package cmds
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -345,7 +346,7 @@ func TestRunDiffJSON(t *testing.T) {
 		t.Fatalf("write trace: %v", err)
 	}
 	var out bytes.Buffer
-	if err := runDiff(planPath, tracePath, ledgerPath, true, false, &out); err != nil {
+	if err := runDiff(planPath, tracePath, ledgerPath, true, false, false, &out); err != nil {
 		t.Fatalf("runDiff --json: %v", err)
 	}
 	var devs []diff.Deviation
@@ -422,5 +423,280 @@ accept: matched
 	}
 	if !bytes.Contains(rewritten, []byte("folded into v0.1.1")) {
 		t.Errorf("patched plan missing single-v accepted annotation 'folded into v0.1.1':\n%s", rewritten)
+	}
+}
+
+// TestRunPatchRollsBackLedgerOnRenameFailure (v0.5.0
+// fix-patch-rename-failure-desync): when the atomic rename (temp -> plan)
+// fails AFTER l.Patch has appended the patch entries, the just-appended
+// entries MUST be rolled back (os.Truncate to the pre-patch size) so the
+// ledger does not record a version the plan never reached — the desync the
+// v0.3.0 atomicity fix closed for the l.Patch failure path. The rename
+// failure is forced via the renameFn seam: CreateTemp and Rename share the
+// same directory write permission, so a portable same-directory rename
+// failure is otherwise unforceable from outside the function.
+func TestRunPatchRollsBackLedgerOnRenameFailure(t *testing.T) {
+	dir := t.TempDir()
+	planPath := filepath.Join(dir, "plan.md")
+	ledgerPath := filepath.Join(dir, "ledger.jsonl")
+	origPlan := []byte(plan.DefaultPlanMarkdown)
+	if err := os.WriteFile(planPath, origPlan, 0o644); err != nil {
+		t.Fatalf("write plan: %v", err)
+	}
+	// Seed an accept so the patch has a deviation to fold AND the ledger
+	// pre-exists with content (prePatchSize >= 0).
+	l := ledger.New(ledgerPath)
+	if err := l.Accept("0.1.0", diff.Deviation{
+		StepID:  "step-2",
+		Kind:    diff.KindDrifting,
+		Summary: "punted on statuses",
+	}); err != nil {
+		t.Fatalf("Accept: %v", err)
+	}
+	prePatchLedger, err := os.ReadFile(ledgerPath)
+	if err != nil {
+		t.Fatalf("read ledger pre-patch: %v", err)
+	}
+
+	// Force os.Rename to fail so the just-appended patch entries must roll back.
+	origRename := renameFn
+	renameFn = func(string, string) error { return errors.New("simulated rename failure") }
+	defer func() { renameFn = origRename }()
+
+	var out bytes.Buffer
+	err = runPatch(planPath, ledgerPath, &out)
+	if err == nil {
+		t.Fatal("expected runPatch to fail when rename fails, got nil")
+	}
+	if !bytes.Contains([]byte(err.Error()), []byte("rename")) {
+		t.Errorf("error should mention rename: %v", err)
+	}
+
+	// The ledger MUST be byte-identical to its pre-patch state (patch entries
+	// rolled back). The bug left the patch entries in place, desyncing the
+	// audit trail with a patch entry for a version the plan never reached.
+	afterLedger, err := os.ReadFile(ledgerPath)
+	if err != nil {
+		t.Fatalf("read ledger post-patch: %v", err)
+	}
+	if !bytes.Equal(prePatchLedger, afterLedger) {
+		t.Errorf("ledger not rolled back to pre-patch state after rename failure (desync!):\n--- want ---\n%s\n--- got ---\n%s", prePatchLedger, afterLedger)
+	}
+	// The plan file must also be unchanged (rename failed; temp discarded).
+	planAfter, err := os.ReadFile(planPath)
+	if err != nil {
+		t.Fatalf("read plan post-patch: %v", err)
+	}
+	if !bytes.Equal(origPlan, planAfter) {
+		t.Errorf("plan changed despite rename failure (desync!):\n--- want ---\n%s\n--- got ---\n%s", origPlan, planAfter)
+	}
+}
+
+// TestRunDiffFailOnDrift (v0.5.0 feat-diff-exit-code-on-drift): a plan+trace
+// with an unaccepted drifting step must return a non-nil error under
+// --fail-on-drift (CI exit 1) and nil without it. step-2 ran but its accept
+// criterion is unsatisfied → drifting; step-1 matched.
+func TestRunDiffFailOnDrift(t *testing.T) {
+	dir := t.TempDir()
+	planPath := filepath.Join(dir, "plan.md")
+	tracePath := filepath.Join(dir, "trace.jsonl")
+	ledgerPath := filepath.Join(dir, "ledger.jsonl")
+	planMD := `# Plan: demo
+version: 0.1.0
+## step-1
+intent: do thing
+accept: done
+## step-2
+intent: do other
+accept: finished
+`
+	if err := os.WriteFile(planPath, []byte(planMD), 0o644); err != nil {
+		t.Fatalf("write plan: %v", err)
+	}
+	// step-1 matched (criterion "done" present); step-2 drifting (criterion
+	// "finished" absent from its summary).
+	traceContent := `{"ts":"2026-07-23T10:00:00Z","step_id":"step-1","action":"run","summary":"work done"}
+{"ts":"2026-07-23T10:20:00Z","step_id":"step-2","action":"run","summary":"punted on the work"}
+`
+	if err := os.WriteFile(tracePath, []byte(traceContent), 0o644); err != nil {
+		t.Fatalf("write trace: %v", err)
+	}
+
+	// With --fail-on-drift: the unaccepted drifting step-2 (plus unexecuted
+	// is not present here, both steps ran) trips the gate → non-nil error.
+	var out bytes.Buffer
+	if err := runDiff(planPath, tracePath, ledgerPath, false, false, true, &out); err == nil {
+		t.Fatal("expected drift error with --fail-on-drift, got nil")
+	}
+	// Without --fail-on-drift: same trace, no error (existing prose behaviour).
+	out.Reset()
+	if err := runDiff(planPath, tracePath, ledgerPath, false, false, false, &out); err != nil {
+		t.Errorf("expected nil without --fail-on-drift, got %v", err)
+	}
+}
+
+// TestRunDiffFailOnDriftAllMatched (v0.5.0 feat-diff-exit-code-on-drift): an
+// all-matched trace exits 0 even under --fail-on-drift (matched steps do not
+// trip the gate).
+func TestRunDiffFailOnDriftAllMatched(t *testing.T) {
+	dir := t.TempDir()
+	planPath := filepath.Join(dir, "plan.md")
+	tracePath := filepath.Join(dir, "trace.jsonl")
+	ledgerPath := filepath.Join(dir, "ledger.jsonl")
+	planMD := `# Plan: demo
+version: 0.1.0
+## step-1
+intent: do thing
+accept: done
+## step-2
+intent: do other
+accept: finished
+`
+	if err := os.WriteFile(planPath, []byte(planMD), 0o644); err != nil {
+		t.Fatalf("write plan: %v", err)
+	}
+	// Both steps satisfy their accept criteria → all matched.
+	traceContent := `{"ts":"2026-07-23T10:00:00Z","step_id":"step-1","action":"run","summary":"work done"}
+{"ts":"2026-07-23T10:20:00Z","step_id":"step-2","action":"run","summary":"all finished"}
+`
+	if err := os.WriteFile(tracePath, []byte(traceContent), 0o644); err != nil {
+		t.Fatalf("write trace: %v", err)
+	}
+	var out bytes.Buffer
+	if err := runDiff(planPath, tracePath, ledgerPath, false, false, true, &out); err != nil {
+		t.Errorf("expected nil for all-matched trace with --fail-on-drift, got %v", err)
+	}
+}
+
+// TestRunDiffFailOnDriftAcceptedDoesNotGate (v0.5.0 feat-diff-exit-code-on-drift):
+// a deviation folded by the accepted overlay (an accepted drifting step) does
+// NOT trip the gate — only UNACCEPTED drift does. This is the CI complement
+// to the accept→patch→accept loop: an accepted drift is acknowledged, not a
+// build failure.
+func TestRunDiffFailOnDriftAcceptedDoesNotGate(t *testing.T) {
+	dir := t.TempDir()
+	planPath := filepath.Join(dir, "plan.md")
+	tracePath := filepath.Join(dir, "trace.jsonl")
+	ledgerPath := filepath.Join(dir, "ledger.jsonl")
+	planMD := `# Plan: demo
+version: 0.1.0
+## step-1
+intent: do thing
+accept: done
+## step-2
+intent: do other
+accept: finished
+`
+	if err := os.WriteFile(planPath, []byte(planMD), 0o644); err != nil {
+		t.Fatalf("write plan: %v", err)
+	}
+	// step-2 is drifting, but the user accepted it (accept overlay) → must
+	// NOT trip the gate under --fail-on-drift.
+	traceContent := `{"ts":"2026-07-23T10:00:00Z","step_id":"step-1","action":"run","summary":"work done"}
+{"ts":"2026-07-23T10:20:00Z","step_id":"step-2","action":"run","summary":"punted on the work"}
+`
+	if err := os.WriteFile(tracePath, []byte(traceContent), 0o644); err != nil {
+		t.Fatalf("write trace: %v", err)
+	}
+	l := ledger.New(ledgerPath)
+	if err := l.Accept("0.1.0", diff.Deviation{
+		StepID: "step-2",
+		Kind:   diff.KindDrifting,
+	}); err != nil {
+		t.Fatalf("Accept: %v", err)
+	}
+	var out bytes.Buffer
+	if err := runDiff(planPath, tracePath, ledgerPath, false, false, true, &out); err != nil {
+		t.Errorf("accepted drifting step should NOT trip --fail-on-drift, got %v", err)
+	}
+	// And the prose output should still mark step-2 [accepted].
+	if !bytes.Contains(out.Bytes(), []byte("[accepted]")) {
+		t.Errorf("output should mark the accepted step-2:\n%s", out.String())
+	}
+}
+
+// TestRunLogPrettyAndJSON (v0.5.0 feat-ledger-log-command): `driftledger log`
+// pretty-prints one row per LedgerEntry in append (audit) order, and --json
+// round-trips into a slice of ledger.Entry. Fixture: one accept + one patch.
+func TestRunLogPrettyAndJSON(t *testing.T) {
+	dir := t.TempDir()
+	ledgerPath := filepath.Join(dir, "ledger.jsonl")
+	l := ledger.New(ledgerPath)
+	// one accept + one patch entry, in op order.
+	if err := l.Accept("0.1.0", diff.Deviation{
+		StepID:  "step-2",
+		Kind:    diff.KindDrifting,
+		Summary: "punted on statuses",
+	}); err != nil {
+		t.Fatalf("Accept: %v", err)
+	}
+	if err := l.Patch("0.1.1", []diff.Deviation{{
+		StepID:  "step-2",
+		Kind:    diff.KindDrifting,
+		Summary: "punted on statuses",
+	}}); err != nil {
+		t.Fatalf("Patch: %v", err)
+	}
+
+	// (a) pretty: two formatted rows in op order (accept before patch).
+	var out bytes.Buffer
+	if err := runLog(ledgerPath, false, false, &out); err != nil {
+		t.Fatalf("runLog: %v", err)
+	}
+	body := out.Bytes()
+	for _, want := range []string{"accept", "patch", "step-2", "0.1.0", "0.1.1", "patched_to:0.1.1"} {
+		if !bytes.Contains(body, []byte(want)) {
+			t.Errorf("log output missing %q:\n%s", want, out.String())
+		}
+	}
+	// op order: the accept row (plan:0.1.0) precedes the patch row (plan:0.1.1).
+	acceptIdx := bytes.Index(body, []byte("plan:0.1.0"))
+	patchIdx := bytes.Index(body, []byte("plan:0.1.1"))
+	if acceptIdx < 0 || patchIdx < 0 {
+		t.Fatalf("expected both accept and patch rows; indices accept=%d patch=%d", acceptIdx, patchIdx)
+	}
+	if acceptIdx > patchIdx {
+		t.Errorf("accept row should precede patch row (audit order): accept@%d patch@%d", acceptIdx, patchIdx)
+	}
+
+	// (b) --json: round-trips into []ledger.Entry, op order preserved, patch
+	// entry stamped with patched_to_version.
+	var jout bytes.Buffer
+	if err := runLog(ledgerPath, true, false, &jout); err != nil {
+		t.Fatalf("runLog --json: %v", err)
+	}
+	var got []ledger.Entry
+	if err := json.Unmarshal(jout.Bytes(), &got); err != nil {
+		t.Fatalf("--json output is not valid JSON / does not round-trip into []ledger.Entry: %v\noutput:\n%s", err, jout.String())
+	}
+	if len(got) != 2 {
+		t.Fatalf("entries = %d, want 2", len(got))
+	}
+	if got[0].Op != ledger.OpAccept {
+		t.Errorf("got[0].op = %q, want accept", got[0].Op)
+	}
+	if got[1].Op != ledger.OpPatch {
+		t.Errorf("got[1].op = %q, want patch", got[1].Op)
+	}
+	if got[1].Deviation.PatchedToVersion != "0.1.1" {
+		t.Errorf("got[1].patched_to_version = %q, want 0.1.1", got[1].Deviation.PatchedToVersion)
+	}
+	if got[1].Deviation.StepID != "step-2" {
+		t.Errorf("got[1].step_id = %q, want step-2", got[1].Deviation.StepID)
+	}
+}
+
+// TestRunLogEmptyLedgerIsFine (v0.5.0): a fresh repo with no ledger is not an
+// error — `driftledger log` prints a zero-entry summary (mirrors
+// ledger.Read's nil/nil contract for a missing file).
+func TestRunLogEmptyLedgerIsFine(t *testing.T) {
+	dir := t.TempDir()
+	ledgerPath := filepath.Join(dir, "ledger.jsonl")
+	var out bytes.Buffer
+	if err := runLog(ledgerPath, false, false, &out); err != nil {
+		t.Fatalf("runLog on missing ledger: %v", err)
+	}
+	if !bytes.Contains(out.Bytes(), []byte("0 entries")) {
+		t.Errorf("log of empty ledger should report 0 entries:\n%s", out.String())
 	}
 }

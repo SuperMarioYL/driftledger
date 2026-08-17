@@ -281,3 +281,77 @@ func TestEntryJSONShape(t *testing.T) {
 		t.Errorf("deviation.step_id = %v", dev["step_id"])
 	}
 }
+
+// TestAcceptedStepIDsResetsAfterPatch (v0.5.0 fix-accepted-overlay-leaks-past-patch):
+// AcceptedStepIDs must reset the accepted set on an OpPatch entry (mirroring
+// pendingAccepted) so only accepts recorded SINCE the most recent patch remain
+// in the overlay. Without the reset, a step accepted pre-patch stays marked
+// [accepted] after the patch — masking post-patch drift on the same step as
+// already-accepted and blocking re-acceptance, breaking the
+// accept→patch→accept loop that is the product's core workflow.
+func TestAcceptedStepIDsResetsAfterPatch(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ledger.jsonl")
+	l := New(path)
+	// 1. step-2 accepted pre-patch — this accept is folded by the patch.
+	if err := l.Accept("0.1.0", dev("step-2", diff.KindDrifting)); err != nil {
+		t.Fatalf("Accept: %v", err)
+	}
+	// 2. patch folds the accepted deviation — the accept is consumed.
+	if err := l.Patch("0.1.1", []diff.Deviation{dev("step-2", diff.KindDrifting)}); err != nil {
+		t.Fatalf("Patch: %v", err)
+	}
+	// 3. post-patch: the agent drifts on step-2 again. The overlay must NOT
+	//    mark it accepted (the pre-patch accept was folded by the patch) so
+	//    the user can press `a` to re-accept — the accept→patch→accept loop.
+	accepted, err := AcceptedStepIDs(path)
+	if err != nil {
+		t.Fatalf("AcceptedStepIDs: %v", err)
+	}
+	if accepted["step-2"] {
+		t.Errorf("step-2 still marked accepted after patch — overlay leaked past the patch (re-acceptance blocked)")
+	}
+	// 4. re-accept step-2 post-patch — the overlay must mark it accepted now.
+	if err := l.Accept("0.1.1", dev("step-2", diff.KindDrifting)); err != nil {
+		t.Fatalf("re-Accept: %v", err)
+	}
+	accepted, err = AcceptedStepIDs(path)
+	if err != nil {
+		t.Fatalf("AcceptedStepIDs after re-accept: %v", err)
+	}
+	if !accepted["step-2"] {
+		t.Errorf("step-2 should be accepted after a post-patch re-accept — the accept→patch→accept loop is broken")
+	}
+}
+
+// TestAcceptedStepIDsResetsAfterRollback covers the OpRollback branch of the
+// overlay reset (v0.5.0 fix-accepted-overlay-leaks-past-patch): a rollback
+// entry consumes the accepted set exactly like a patch entry, so a step
+// accepted pre-rollback must not stay marked [accepted] afterwards.
+func TestAcceptedStepIDsResetsAfterRollback(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ledger.jsonl")
+	l := New(path)
+	if err := l.Accept("0.1.0", dev("step-2", diff.KindDrifting)); err != nil {
+		t.Fatalf("Accept: %v", err)
+	}
+	if err := l.Rollback("0.1.0", []diff.Deviation{dev("step-2", diff.KindDrifting)}); err != nil {
+		t.Fatalf("Rollback: %v", err)
+	}
+	accepted, err := AcceptedStepIDs(path)
+	if err != nil {
+		t.Fatalf("AcceptedStepIDs: %v", err)
+	}
+	if accepted["step-2"] {
+		t.Errorf("step-2 still marked accepted after rollback — overlay leaked past the rollback")
+	}
+	// a fresh post-rollback accept re-enters the overlay.
+	if err := l.Accept("0.1.0", dev("step-3", diff.KindDrifting)); err != nil {
+		t.Fatalf("Accept step-3: %v", err)
+	}
+	accepted, err = AcceptedStepIDs(path)
+	if err != nil {
+		t.Fatalf("AcceptedStepIDs after accept: %v", err)
+	}
+	if !accepted["step-3"] {
+		t.Errorf("step-3 should be accepted after a post-rollback accept")
+	}
+}

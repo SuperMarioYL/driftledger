@@ -9,7 +9,6 @@
 package tui
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"os"
@@ -192,16 +191,25 @@ func (m *Model) refresh() {
 	// rendering an incomplete deviation ledger as if nothing were wrong.
 	m.err = ""
 	events, skipped, outOfOrder, err := trace.ParseFile(m.tracePath)
-	if err != nil && !os.IsNotExist(err) {
-		// Surface the read error so View() can render it. On the too-long-line
-		// path, halt the partial reconcile: do not feed ParseFile's partial
-		// events into diff.Reconcile — keep the last known-good deviation set
-		// and show the error instead of a silently incomplete ledger.
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		// Surface the read error so View() can render it, and preserve the
+		// last-known-good deviation set instead of reconciling a partial (or,
+		// on an os.Open failure, nil) event set — which would silently wipe
+		// the live ledger to all-unexecuted. The NotExist case is correctly
+		// excluded (a fresh run with no trace is intended to paint
+		// all-unexecuted); every OTHER read error holds the last good state.
+		// (v0.5.0 fix-tui-refresh-wipes-on-trace-error: the guard previously
+		// early-returned only for bufio.ErrTooLong, so a transient
+		// permission/IO error from os.Open fell through to Reconcile with nil
+		// events, contradicting the code's own comment at app.go:196-199.
+		// errors.Is is used instead of os.IsNotExist because trace.ParseFile
+		// wraps the open error with fmt.Errorf("...: %w"), which
+		// os.IsNotExist does NOT unwrap — so the bare os.IsNotExist check
+		// never actually excluded the NotExist case, a latent bug this fix
+		// corrects alongside the early-return widening.)
 		m.err = fmt.Sprintf("trace read: %v", err)
-		if errors.Is(err, bufio.ErrTooLong) {
-			m.overlayAccepted()
-			return
-		}
+		m.overlayAccepted()
+		return
 	}
 	// v0.3.0 fix-trace-parsefile-silent-skip: surface malformed-line count so
 	// a partial trace is never silently reconciled (a dropped step event would
