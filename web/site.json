@@ -1,47 +1,129 @@
 {
   "schema": 1,
-  "content_version": 2,
+  "content_version": 3,
   "name": "driftledger",
   "github": "https://github.com/SuperMarioYL/driftledger",
   "host": "driftledger.lei6393.com",
-  "lang": { "primary": "en", "toggle": true },
-  "accent": ["#e8a04c", "#d97757", "#6b7280"],
+  "lang": {
+    "primary": "en",
+    "toggle": true
+  },
+  "accent": [
+    "#e8a04c",
+    "#d97757",
+    "#6b7280"
+  ],
   "hero": {
-    "eyebrow": { "zh": "长程智能体 · 计划即合约 · 飞行中纠偏", "en": "Long-horizon agents · Plan-as-contract · Mid-flight course-correct" },
-    "headline": { "zh": "智能体跑偏了？\n第 20 分钟就拦下，当场改回合约", "en": "Your agent drifted from the plan.\nCatch it at minute 20, patch it, roll it back." },
-    "sub": { "zh": "把智能体公布的计划变成可对账的合约，实时对照它正在做的事——发现跑偏当场接受、写回新版合约、再一条命令发出回滚指令。从发现到纠偏，全程飞行中完成，不再等事后复盘。", "en": "Turn the agent's stated plan into a reconcilable contract and watch it against live execution — accept drift on the spot, fold it back into a new versioned contract, then emit a rollback directive. From catch to correct, all mid-flight — never in the post-mortem." },
+    "eyebrow": {
+      "zh": "长程智能体 · 计划即合约 · 飞行中纠偏",
+      "en": "Long-horizon agents · Plan-as-contract · Mid-flight course-correct"
+    },
+    "headline": {
+      "zh": "智能体跑偏了？\n第 20 分钟就拦下，当场改回合约",
+      "en": "Your agent drifted from the plan.\nCatch it at minute 20, patch it, roll it back."
+    },
+    "sub": {
+      "zh": "把智能体公布的计划变成可对账的合约，实时对照它正在做的事——发现跑偏当场接受、写回新版合约、再一条命令发出回滚指令。从发现到纠偏，全程飞行中完成，不再等事后复盘。",
+      "en": "Turn the agent's stated plan into a reconcilable contract and watch it against live execution — accept drift on the spot, fold it back into a new versioned contract, then emit a rollback directive. From catch to correct, all mid-flight — never in the post-mortem."
+    },
     "command": "driftledger watch plan.md trace.jsonl",
-    "cta": { "zh": "查看 GitHub", "en": "View on GitHub" },
-    "ctaGithub": { "zh": "Star 项目", "en": "Star the repo" },
-    "scroll": { "zh": "往下看", "en": "Scroll" }
+    "cta": {
+      "zh": "查看 GitHub",
+      "en": "View on GitHub"
+    },
+    "ctaGithub": {
+      "zh": "Star 项目",
+      "en": "Star the repo"
+    },
+    "scroll": {
+      "zh": "往下看",
+      "en": "Scroll"
+    }
   },
   "advantages": [
     {
-      "title": { "zh": "飞行中偏差账本", "en": "An in-flight deviation ledger" },
-      "body": { "zh": "智能体一边跑，你一边看：哪步对上了、哪步跑偏了、哪步没动、哪步多冒出来——都是实时的，贴在你的编码智能体旁边。", "en": "As the agent runs, watch live: which steps matched, which drifted, which never ran, which appeared out of nowhere — in real time, in the pane next to your coding agent." },
-      "chips": ["› driftledger watch", "› 已匹配 / 跑偏 / 未执行 / 多余", "› 边跑边对账"]
+      "title": {
+        "zh": "飞行中偏差账本",
+        "en": "An in-flight deviation ledger"
+      },
+      "body": {
+        "zh": "智能体一边跑，你一边看：哪步对上了、哪步跑偏了、哪步没动、哪步多冒出来——都是实时的，贴在你的编码智能体旁边。",
+        "en": "As the agent runs, watch live: which steps matched, which drifted, which never ran, which appeared out of nowhere — in real time, in the pane next to your coding agent."
+      },
+      "chips": [
+        "› driftledger watch",
+        "› 已匹配 / 跑偏 / 未执行 / 多余",
+        "› 边跑边对账"
+      ]
     },
     {
-      "title": { "zh": "你的 trace 不再对你撒谎", "en": "Your trace stops lying to you" },
-      "body": { "zh": "以前，摘要里一个换行就会让那一步的事件被悄悄丢掉——步骤明明跑了却显示没动，专门用来抓跑偏的工具自己却在丢证据。现在每一步事件都落得进去、留得下来；即便某行 trace 读不出来，你也会直接看到报错，而不是一本假干净的账本。", "en": "Before, a stray newline in a step summary would silently drop that event — a step that actually ran showed up as never started, so the tool built to catch drift was itself losing evidence. Now every step event lands and stays; if a trace line can't be read, you see the error outright instead of a falsely clean ledger." },
-      "chips": ["› 换行不再丢事件", "› 读取报错直接可见", "› 账本不再残缺"]
+      "title": {
+        "zh": "你的 trace 不再对你撒谎",
+        "en": "Your trace stops lying to you"
+      },
+      "body": {
+        "zh": "以前，摘要里一个换行就会让那一步的事件被悄悄丢掉——步骤明明跑了却显示没动，专门用来抓跑偏的工具自己却在丢证据。现在每一步事件都落得进去、留得下来；即便某行 trace 读不出来，你也会直接看到报错，而不是一本假干净的账本。",
+        "en": "Before, a stray newline in a step summary would silently drop that event — a step that actually ran showed up as never started, so the tool built to catch drift was itself losing evidence. Now every step event lands and stays; if a trace line can't be read, you see the error outright instead of a falsely clean ledger."
+      },
+      "chips": [
+        "› 换行不再丢事件",
+        "› 读取报错直接可见",
+        "› 账本不再残缺"
+      ]
     },
     {
-      "title": { "zh": "接受、改回、回滚——闭环完成", "en": "Accept, patch, rollback — the loop is closed" },
-      "body": { "zh": "按 a 接受跑偏的步骤，一条命令把接受的偏差折回新版计划合约——版本递增、留痕可查；再一条命令发出 git 回滚指令，把跑偏的改动干净地退回去。从发现跑偏到纠正合约到发出回滚，全程留在账本里，每一步都可审计，不再靠事后翻记录。", "en": "Press a to accept a drifted step, one command folds the accepted deviation back into a new versioned plan contract — version bumped, receipt on the record — then one more command emits a git-revert directive so the drifted change rolls back cleanly. From spotting drift to correcting the contract to emitting the revert, it all stays in the ledger, every step auditable, no post-mortem digging." },
-      "chips": ["› driftledger patch", "› driftledger rollback", "› 版本递增 · 留痕可查", "› 回滚指令只发不执行"]
+      "title": {
+        "zh": "接受、改回、回滚——闭环完成",
+        "en": "Accept, patch, rollback — the loop is closed"
+      },
+      "body": {
+        "zh": "按 a 接受跑偏的步骤，一条命令把接受的偏差折回新版计划合约——版本递增、留痕可查；再一条命令发出 git 回滚指令，把跑偏的改动干净地退回去。从发现跑偏到纠正合约到发出回滚，全程留在账本里，每一步都可审计，不再靠事后翻记录。",
+        "en": "Press a to accept a drifted step, one command folds the accepted deviation back into a new versioned plan contract — version bumped, receipt on the record — then one more command emits a git-revert directive so the drifted change rolls back cleanly. From spotting drift to correcting the contract to emitting the revert, it all stays in the ledger, every step auditable, no post-mortem digging."
+      },
+      "chips": [
+        "› driftledger patch",
+        "› driftledger rollback",
+        "› 版本递增 · 留痕可查",
+        "› 回滚指令只发不执行"
+      ]
     },
     {
-      "title": { "zh": "不靠大模型对账", "en": "Reconciliation without an LLM" },
-      "body": { "zh": "对账只看步骤在不在、验收关键词对不对——不请另一个大模型来打分。所以一个周末能搭起来，而且全程可审计、可复现。", "en": "Matching is just step-presence and keyword acceptance-criteria — no second model scoring it. So it builds in a weekend and stays fully auditable and reproducible." },
-      "chips": ["› 无需额外模型", "› 步骤 + 关键词", "› 可审计 · 可复现"]
+      "title": {
+        "zh": "不靠大模型对账",
+        "en": "Reconciliation without an LLM"
+      },
+      "body": {
+        "zh": "对账只看步骤在不在、验收关键词对不对——不请另一个大模型来打分。所以一个周末能搭起来，而且全程可审计、可复现。",
+        "en": "Matching is just step-presence and keyword acceptance-criteria — no second model scoring it. So it builds in a weekend and stays fully auditable and reproducible."
+      },
+      "chips": [
+        "› 无需额外模型",
+        "› 步骤 + 关键词",
+        "› 可审计 · 可复现"
+      ]
     }
   ],
-  "scene": { "kind": "mesh" },
-  "cta": {
-    "headline": { "zh": "把跑偏变成飞行记录", "en": "Turn drift into a flight record" },
-    "sub": { "zh": "一条命令装上，给长程智能体配上可对账、可修订、可回滚的计划合约。", "en": "Install in one command — give your long-horizon agent a reconcilable, patchable, rollbackable plan contract." },
-    "button": { "zh": "在 GitHub 上查看", "en": "View on GitHub" }
+  "scene": {
+    "kind": "mesh"
   },
-  "footer": { "tag": { "zh": "长程智能体的飞行记录仪", "en": "The flight recorder for long-horizon agents" } }
+  "cta": {
+    "headline": {
+      "zh": "把跑偏变成飞行记录",
+      "en": "Turn drift into a flight record"
+    },
+    "sub": {
+      "zh": "一条命令装上，给长程智能体配上可对账、可修订、可回滚的计划合约。",
+      "en": "Install in one command — give your long-horizon agent a reconcilable, patchable, rollbackable plan contract."
+    },
+    "button": {
+      "zh": "在 GitHub 上查看",
+      "en": "View on GitHub"
+    }
+  },
+  "footer": {
+    "tag": {
+      "zh": "长程智能体的飞行记录仪",
+      "en": "The flight recorder for long-horizon agents"
+    }
+  }
 }
