@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "content_version": 3,
+  "content_version": 4,
   "name": "driftledger",
   "github": "https://github.com/SuperMarioYL/driftledger",
   "host": "driftledger.lei6393.com",
