@@ -6,12 +6,12 @@
 // step is classified as one of:
 //
 //   - matched:    the step ran AND every accept criterion's keywords appear in
-//                 its trace summaries.
+//     its trace summaries.
 //   - drifting:   the step ran but at least one criterion is unsatisfied — the
-//                 minute-20 catch.
+//     minute-20 catch.
 //   - unexecuted: no trace event references the step id.
 //   - extra:      a trace event references a step id that is not in the plan
-//                 (or carries no step id) — work outside the contract.
+//     (or carries no step id) — work outside the contract.
 package diff
 
 import (
@@ -37,13 +37,13 @@ const (
 // Deviation is one row of the deviation ledger. It mirrors the primitive's
 // pseudo-type in mvp_plan §2.
 type Deviation struct {
-	StepID          string    `json:"step_id"`
-	Kind            Kind      `json:"kind"`
-	FirstSeenTS     time.Time `json:"first_seen_ts"`
-	Summary         string    `json:"summary,omitempty"`
-	UnmetCriteria   []string  `json:"unmet_criteria,omitempty"`
-	Accepted        bool      `json:"accepted"`
-	PatchedToVersion string   `json:"patched_to_version,omitempty"`
+	StepID           string    `json:"step_id"`
+	Kind             Kind      `json:"kind"`
+	FirstSeenTS      time.Time `json:"first_seen_ts"`
+	Summary          string    `json:"summary,omitempty"`
+	UnmetCriteria    []string  `json:"unmet_criteria,omitempty"`
+	Accepted         bool      `json:"accepted"`
+	PatchedToVersion string    `json:"patched_to_version,omitempty"`
 }
 
 // Reconcile produces the current deviation set for a plan + trace. It is a pure

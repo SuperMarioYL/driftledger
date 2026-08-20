@@ -272,6 +272,45 @@ func TestNewAcceptsMissingTrace(t *testing.T) {
 	}
 }
 
+// TestOverlayAcceptedSurfacesLedgerReadError (v0.6.0
+// fix-diff-swallows-ledger-read-error): a non-NotExist ledger-read error (here:
+// the ledger path is a directory, so the bufio scan fails with EISDIR) must
+// surface in m.err, mirroring the trace-read guard — not be swallowed. Before
+// the fix overlayAccepted returned early on ANY ledger error WITHOUT setting
+// m.err, so the live ledger silently lost accepted state with no error band.
+// A directory is used (rather than chmod 0) so the failure is portable and
+// root-bypass-free: os.Open succeeds on a directory, then the scan read returns
+// EISDIR, a non-NotExist error that reaches the guard.
+func TestOverlayAcceptedSurfacesLedgerReadError(t *testing.T) {
+	dir := t.TempDir()
+	planPath := filepath.Join(dir, "plan.md")
+	tracePath := filepath.Join(dir, "trace.jsonl")
+	ledgerPath := filepath.Join(dir, "ledgerdir") // a DIRECTORY, not a file
+	if err := os.Mkdir(ledgerPath, 0o755); err != nil {
+		t.Fatalf("mkdir ledger dir: %v", err)
+	}
+	writeFile(t, planPath, planMD)
+	// A clean first trace: step-1 matched, step-2/3 unexecuted — no trace error,
+	// so any m.err set after refresh must come from the ledger-read path.
+	writeFile(t, tracePath, traceLine("2026-07-23T10:00:00Z", "step-1", "run",
+		"initialized go module and added cmd package"))
+	m, err := New(planPath, tracePath, ledgerPath)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if m.err == "" {
+		t.Fatal("expected a ledger-read error to surface in m.err, got empty (swallowed)")
+	}
+	if !contains(m.err, "ledger read") {
+		t.Errorf("m.err should mention the ledger read failure: %q", m.err)
+	}
+	// View must render the error band so the failure is visible, not silent.
+	out := m.View()
+	if !contains(out, "ledger read") {
+		t.Errorf("View missing the ledger-read error band:\n%s", out)
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (func() bool {
 		for i := 0; i+len(sub) <= len(s); i++ {

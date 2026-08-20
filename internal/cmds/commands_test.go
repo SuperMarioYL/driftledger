@@ -700,3 +700,94 @@ func TestRunLogEmptyLedgerIsFine(t *testing.T) {
 		t.Errorf("log of empty ledger should report 0 entries:\n%s", out.String())
 	}
 }
+
+// TestRunLogJSONEmptyLedgerEmitsArray (v0.6.0 fix-log-json-null-on-empty-ledger):
+// `driftledger log --json` on a missing/empty ledger must emit the JSON array
+// literal `[]`, not `null`. Before the fix ledger.Read returned a nil []Entry
+// for a missing file and json.Marshal rendered nil as `null`, breaking naive
+// machine consumers (e.g. Python `for e in json.loads(stdout)` crashes on null
+// where it expects a list) and violating the --json flag's "emit the ledger as
+// a JSON array" contract.
+func TestRunLogJSONEmptyLedgerEmitsArray(t *testing.T) {
+	dir := t.TempDir()
+	ledgerPath := filepath.Join(dir, "ledger.jsonl") // missing — fresh repo
+	var out bytes.Buffer
+	if err := runLog(ledgerPath, true, false, &out); err != nil {
+		t.Fatalf("runLog --json on missing ledger: %v", err)
+	}
+	got := bytes.TrimSpace(out.Bytes())
+	if !bytes.Equal(got, []byte("[]")) {
+		t.Errorf("log --json on empty ledger = %q, want %q (null breaks naive JSON-array consumers)", string(got), "[]")
+	}
+	// And it must round-trip into an empty (non-nil) slice, not a nil one.
+	var entries []ledger.Entry
+	if err := json.Unmarshal(got, &entries); err != nil {
+		t.Fatalf("output is not valid JSON: %v\noutput: %s", err, got)
+	}
+	if len(entries) != 0 {
+		t.Errorf("entries = %d, want 0", len(entries))
+	}
+}
+
+// TestRunDiffSurfacesLedgerReadError (v0.6.0 fix-diff-swallows-ledger-read-error):
+// a non-NotExist ledger-read error (here: ledger path is a directory, so the
+// bufio scan fails with EISDIR) must be surfaced by runDiff, not swallowed.
+// Before the fix runDiff set accepted=nil and continued on ANY ledger error,
+// silently dropping the accept overlay so previously-accepted drift showed as
+// unaccepted — and under --fail-on-drift (the v0.5.0 CI gate) the build failed
+// spuriously. A directory is used (rather than chmod 0) so the failure is
+// portable and root-bypass-free: os.Open succeeds on a directory, then the
+// scan read returns EISDIR, a non-NotExist error that reaches the guard.
+func TestRunDiffSurfacesLedgerReadError(t *testing.T) {
+	dir := t.TempDir()
+	planPath := filepath.Join(dir, "plan.md")
+	tracePath := filepath.Join(dir, "trace.jsonl")
+	ledgerPath := filepath.Join(dir, "ledgerdir") // a DIRECTORY, not a file
+	if err := os.Mkdir(ledgerPath, 0o755); err != nil {
+		t.Fatalf("mkdir ledger dir: %v", err)
+	}
+	planMD := `# Plan: demo
+version: 0.1.0
+## step-1
+intent: do thing
+accept: done
+## step-2
+intent: do other
+accept: finished
+`
+	if err := os.WriteFile(planPath, []byte(planMD), 0o644); err != nil {
+		t.Fatalf("write plan: %v", err)
+	}
+	// step-1 matched; step-2 drifting. If the ledger read were swallowed, the
+	// accept overlay would be nil and step-2 would count as unaccepted drift.
+	traceContent := `{"ts":"2026-07-23T10:00:00Z","step_id":"step-1","action":"run","summary":"work done"}
+{"ts":"2026-07-23T10:20:00Z","step_id":"step-2","action":"run","summary":"punted on the work"}
+`
+	if err := os.WriteFile(tracePath, []byte(traceContent), 0o644); err != nil {
+		t.Fatalf("write trace: %v", err)
+	}
+
+	// Without --fail-on-drift: the swallowed path used to return nil; now the
+	// ledger-read error surfaces directly.
+	var out bytes.Buffer
+	err := runDiff(planPath, tracePath, ledgerPath, false, false, false, &out)
+	if err == nil {
+		t.Fatal("expected runDiff to surface the ledger-read error, got nil (swallowed)")
+	}
+	if !bytes.Contains([]byte(err.Error()), []byte("ledger")) {
+		t.Errorf("error should reference the ledger read failure, got: %v", err)
+	}
+
+	// Under --fail-on-drift the OLD code spuriously fired the drift gate
+	// (step-2 unaccepted) because the accept overlay was dropped; the fix
+	// returns the ledger error instead, so the gate never fires on a read
+	// failure.
+	out.Reset()
+	err = runDiff(planPath, tracePath, ledgerPath, false, false, true, &out)
+	if err == nil {
+		t.Fatal("expected runDiff to surface the ledger-read error under --fail-on-drift, got nil")
+	}
+	if bytes.Contains([]byte(err.Error()), []byte("unaccepted deviation")) {
+		t.Errorf("--fail-on-drift spuriously fired the drift gate on a ledger-read error (accept overlay dropped): %v", err)
+	}
+}

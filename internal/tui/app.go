@@ -43,7 +43,7 @@ type Model struct {
 	ledger *ledger.Ledger
 	cursor int
 
-	err     string
+	err      string
 	quitting bool
 }
 
@@ -59,8 +59,8 @@ var (
 		diff.KindUnexecuted: lipgloss.NewStyle().Foreground(lipgloss.Color("#6E6E73")),
 		diff.KindExtra:      lipgloss.NewStyle().Foreground(lipgloss.Color("#5E5CE6")),
 	}
-	dimStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#6E6E73"))
-	accStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#10A37F"))
+	dimStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#6E6E73"))
+	accStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#10A37F"))
 )
 
 // New loads the plan contract and any prior accepted state, returning a model
@@ -235,6 +235,19 @@ func (m *Model) refresh() {
 func (m *Model) overlayAccepted() {
 	accepted, err := ledger.AcceptedStepIDs(m.ledger.Path())
 	if err != nil {
+		// A missing ledger is normal for a fresh run — overlay nothing. Any
+		// OTHER read error (a permission/IO open failure or a bufio scan error
+		// on a >1MB ledger line) must surface as m.err, mirroring the
+		// trace-read guard above, or the live ledger silently loses accepted
+		// state with no error band. Don't clobber a more severe error already
+		// set this refresh (e.g. a trace-read failure on the last-known-good
+		// path): the first error wins so the primary failure stays visible.
+		// (v0.6.0 fix-diff-swallows-ledger-read-error — mirrors the v0.5.0
+		// trace-read guard fix-tui-refresh-wipes-on-trace-error, extended to
+		// the ledger-read path.)
+		if !errors.Is(err, os.ErrNotExist) && m.err == "" {
+			m.err = fmt.Sprintf("ledger read: %v", err)
+		}
 		return
 	}
 	m.deviations = diff.OverlayAccepted(m.deviations, accepted)

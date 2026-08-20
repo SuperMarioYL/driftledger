@@ -144,13 +144,13 @@ func TestCriterionSatisfied(t *testing.T) {
 		crit string
 		want bool
 	}{
-		{"go module", true},      // "module" present ("go" is len-2, dropped)
-		{"cmd package", true},   // both whole words present
-		{"cmd present", false},    // "present" is not a whole word in the summary
-		{"module", true},        // single token present
-		{"nonexistent", false},   // absent
-		{"", true},              // no significant tokens → vacuously satisfied
-		{"the", true},           // "the" is a stopword → no significant tokens → vacuous
+		{"go module", true},    // "module" present ("go" is len-2, dropped)
+		{"cmd package", true},  // both whole words present
+		{"cmd present", false}, // "present" is not a whole word in the summary
+		{"module", true},       // single token present
+		{"nonexistent", false}, // absent
+		{"", true},             // no significant tokens → vacuously satisfied
+		{"the", true},          // "the" is a stopword → no significant tokens → vacuous
 	}
 	for _, c := range cases {
 		if got := criterionSatisfied(c.crit, words); got != c.want {
@@ -190,9 +190,9 @@ func TestOverlayAccepted(t *testing.T) {
 
 func TestFormatDeviation(t *testing.T) {
 	d := Deviation{
-		StepID:      "step-2",
-		Kind:        KindDrifting,
-		FirstSeenTS: time.Date(2026, 7, 23, 10, 5, 0, 0, time.UTC),
+		StepID:        "step-2",
+		Kind:          KindDrifting,
+		FirstSeenTS:   time.Date(2026, 7, 23, 10, 5, 0, 0, time.UTC),
 		UnmetCriteria: []string{"matched status"},
 	}
 	s := FormatDeviation(d)

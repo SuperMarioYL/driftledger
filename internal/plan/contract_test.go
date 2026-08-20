@@ -131,10 +131,10 @@ func TestBumpVersion(t *testing.T) {
 		{"0.1.1", "0.1.2"},
 		{"1.2.3", "1.2.4"},
 		{"0.0.0", "0.0.1"},
-		{"", "0.0.1"},               // empty → defaults to 0.0.0 then bumps
-		{"weird", "weird.patch1"},   // non-semver fallback
-		{"0.1", "0.1.patch1"},       // not three dot-components
-		{"  0.2.0  ", "0.2.1"},      // surrounding whitespace trimmed
+		{"", "0.0.1"},             // empty → defaults to 0.0.0 then bumps
+		{"weird", "weird.patch1"}, // non-semver fallback
+		{"0.1", "0.1.patch1"},     // not three dot-components
+		{"  0.2.0  ", "0.2.1"},    // surrounding whitespace trimmed
 		// v0.4.0 fix-patch-version-double-v: a v-prefixed version bumps to BARE
 		// semver so callers that prepend "v" add exactly one (not "vv0.1.1").
 		{"v0.1.0", "0.1.1"},

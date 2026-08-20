@@ -42,7 +42,7 @@ type PlanContract struct {
 // Step is one promised unit of work in a plan contract.
 type Step struct {
 	ID             string
-	Intent        string
+	Intent         string
 	AcceptCriteria []string
 }
 

@@ -14,8 +14,8 @@ import (
 	"github.com/SuperMarioYL/driftledger/internal/diff"
 	"github.com/SuperMarioYL/driftledger/internal/ledger"
 	"github.com/SuperMarioYL/driftledger/internal/plan"
-	"github.com/SuperMarioYL/driftledger/internal/tui"
 	"github.com/SuperMarioYL/driftledger/internal/trace"
+	"github.com/SuperMarioYL/driftledger/internal/tui"
 )
 
 // DefaultLedgerPath is the append-only ledger a `jq` can inspect after a run.
@@ -43,7 +43,7 @@ Reconciliation is structural (step-presence plus accept-criteria keyword match),
 deterministic, and re-run on every new trace line. The ledger is append-only
 JSONL you can inspect with jq. diff + watch ship m1; patch ships m2 (rewrite the
 contract from accepted deviations); rollback (m3) is stubbed on the roadmap.`,
-		Version: "0.5.0",
+		Version: "0.6.0",
 	}
 
 	root.AddCommand(newInitCmd())
@@ -150,10 +150,19 @@ func runDiff(planPath, tracePath, ledgerPath string, jsonOut, jsonPretty, failOn
 	devs := diff.Reconcile(p, events)
 
 	accepted, err := ledger.AcceptedStepIDs(ledgerPath)
-	if err != nil {
-		// A missing ledger is normal for a fresh run — surface nothing, just
-		// reconcile without the overlay.
-		accepted = nil
+	if err != nil && !os.IsNotExist(err) {
+		// A missing ledger is normal for a fresh run — reconcile without the
+		// overlay (ledger.Read returns nil/nil for a NotExist file, so a
+		// NotExist error never reaches here; the guard is the documented
+		// contract for the missing-file case). Any OTHER read error — a
+		// permission/IO open failure or a bufio scan error on a >1MB ledger
+		// line — must surface instead of being swallowed: otherwise the
+		// accept overlay is silently dropped, previously-accepted drift shows
+		// as unaccepted, and --fail-on-drift (the v0.5.0 CI gate) fires
+		// spuriously. (v0.6.0 fix-diff-swallows-ledger-read-error — mirrors
+		// the v0.5.0 trace-read guard fix-tui-refresh-wipes-on-trace-error,
+		// now extended to the ledger-read path.)
+		return err
 	}
 	devs = diff.OverlayAccepted(devs, accepted)
 
@@ -501,6 +510,17 @@ func runLog(ledgerPath string, jsonOut, jsonPretty bool, out io.Writer) error {
 		return err
 	}
 	if jsonOut {
+		// v0.6.0 fix-log-json-null-on-empty-ledger: a missing/empty ledger
+		// returns a nil []Entry from ledger.Read (its documented nil/nil
+		// contract); json.Marshal renders a nil slice as the literal `null`,
+		// not `[]`, violating the --json flag's "emit the ledger as a JSON
+		// array" contract and breaking naive consumers (e.g. Python `for e in
+		// json.loads(stdout)` crashes on null where it expects a list).
+		// Normalize to an empty non-nil slice so the output is always a JSON
+		// array.
+		if entries == nil {
+			entries = []ledger.Entry{}
+		}
 		enc := json.NewEncoder(out)
 		if jsonPretty {
 			enc.SetIndent("", "  ")
