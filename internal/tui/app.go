@@ -233,7 +233,7 @@ func (m *Model) refresh() {
 }
 
 func (m *Model) overlayAccepted() {
-	accepted, err := ledger.AcceptedStepIDs(m.ledger.Path())
+	accepted, skipped, err := ledger.AcceptedStepIDs(m.ledger.Path())
 	if err != nil {
 		// A missing ledger is normal for a fresh run — overlay nothing. Any
 		// OTHER read error (a permission/IO open failure or a bufio scan error
@@ -251,6 +251,13 @@ func (m *Model) overlayAccepted() {
 		return
 	}
 	m.deviations = diff.OverlayAccepted(m.deviations, accepted)
+	// v0.7.0 fix-ledger-read-silent-skip: surface malformed-ledger-line count so
+	// the live accept overlay is never silently partial — mirroring the trace
+	// skipped-line warning above. Don't clobber a more severe error already set
+	// this refresh: the first error wins.
+	if skipped > 0 && m.err == "" {
+		m.err = fmt.Sprintf("ledger read: %d unparseable line(s) skipped — accept overlay may be partial", skipped)
+	}
 }
 
 // acceptSelected appends an `accept` entry for the deviation under the cursor.

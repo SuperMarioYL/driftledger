@@ -63,7 +63,7 @@ func TestRunPatchFoldsAcceptedDeviations(t *testing.T) {
 	}
 
 	// The ledger now carries a patch entry stamping the new version.
-	entries, err := ledger.Read(ledgerPath)
+	entries, _, err := ledger.Read(ledgerPath)
 	if err != nil {
 		t.Fatalf("Read ledger: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestRunPatchNoPendingJustBumpsVersion(t *testing.T) {
 	if p.Version != "0.1.1" {
 		t.Errorf("version = %q, want 0.1.1", p.Version)
 	}
-	entries, _ := ledger.Read(ledgerPath)
+	entries, _, _ := ledger.Read(ledgerPath)
 	if len(entries) != 1 || entries[0].Op != ledger.OpPatch {
 		t.Errorf("expected 1 patch marker entry, got %v", entries)
 	}
@@ -139,7 +139,7 @@ func TestRunPatchSecondCallBumpsAgain(t *testing.T) {
 		t.Errorf("version after two patches = %q, want 0.1.2", p.Version)
 	}
 	// Two patch entries (one per call), no accepts folded in either.
-	entries, _ := ledger.Read(ledgerPath)
+	entries, _, _ := ledger.Read(ledgerPath)
 	var patchCount int
 	for _, e := range entries {
 		if e.Op == ledger.OpPatch {
@@ -247,7 +247,7 @@ func TestRunRollbackEmitsDirectivesAndAppendsEntries(t *testing.T) {
 	}
 
 	// A rollback LedgerEntry was appended.
-	entries, err := ledger.Read(ledgerPath)
+	entries, _, err := ledger.Read(ledgerPath)
 	if err != nil {
 		t.Fatalf("Read ledger: %v", err)
 	}
@@ -281,7 +281,7 @@ func TestRunRollbackNoPendingRecordsMarker(t *testing.T) {
 	if err := runRollback(planPath, ledgerPath, &out); err != nil {
 		t.Fatalf("runRollback: %v", err)
 	}
-	entries, _ := ledger.Read(ledgerPath)
+	entries, _, _ := ledger.Read(ledgerPath)
 	if len(entries) != 1 || entries[0].Op != ledger.OpRollback {
 		t.Errorf("expected 1 rollback marker entry, got %v", entries)
 	}
@@ -789,5 +789,107 @@ accept: finished
 	}
 	if bytes.Contains([]byte(err.Error()), []byte("unaccepted deviation")) {
 		t.Errorf("--fail-on-drift spuriously fired the drift gate on a ledger-read error (accept overlay dropped): %v", err)
+	}
+}
+
+// TestRunDiffMissingTraceReconcilesAllUnexecuted (v0.7.0
+// fix-diff-missing-trace-error): `driftledger diff <plan.md> <missing>.jsonl`
+// must exit 0 and paint every step unexecuted (reconcile with nil events) — the
+// common start-of-run / pre-trace CI case. trace.ParseFile wraps os.Open's
+// not-exist error with fmt.Errorf("trace: open %s: %w"…); os.IsNotExist does
+// NOT unwrap a %w-wrapped error (errors.Is does), so the buggy guard returned
+// the wrapped error instead of reconciling an empty (all-unexecuted) trace.
+func TestRunDiffMissingTraceReconcilesAllUnexecuted(t *testing.T) {
+	dir := t.TempDir()
+	planPath := filepath.Join(dir, "plan.md")
+	tracePath := filepath.Join(dir, "absent.jsonl") // missing — pre-trace CI case
+	ledgerPath := filepath.Join(dir, "ledger.jsonl")
+	if err := os.WriteFile(planPath, []byte(plan.DefaultPlanMarkdown), 0o644); err != nil {
+		t.Fatalf("write plan: %v", err)
+	}
+	var out bytes.Buffer
+	if err := runDiff(planPath, tracePath, ledgerPath, false, false, false, &out); err != nil {
+		t.Fatalf("runDiff on a missing trace should exit 0 (reconcile all-unexecuted), got: %v", err)
+	}
+	// DefaultPlanMarkdown has 3 steps; with no trace events every step is
+	// unexecuted (0 matched, 0 drifting, 0 extra).
+	if !bytes.Contains(out.Bytes(), []byte("unexecuted:3")) {
+		t.Errorf("expected all 3 steps unexecuted on a missing trace, got:\n%s", out.String())
+	}
+	if bytes.Contains(out.Bytes(), []byte("matched:1")) {
+		t.Errorf("no step should be matched with a missing trace:\n%s", out.String())
+	}
+}
+
+// TestRunLogSurfacesSkippedLedgerLines (v0.7.0 fix-ledger-read-silent-skip): a
+// ledger with one malformed JSONL line must surface "N unparseable ledger
+// line(s) skipped" as a summary line, not silently reconcile a partial trail.
+// Before the fix ledger.Read returned no skipped count (signature
+// ([]Entry, error)) so every caller silently computed a partial ledger — a
+// corrupted accept line silently dropped that accept.
+func TestRunLogSurfacesSkippedLedgerLines(t *testing.T) {
+	dir := t.TempDir()
+	ledgerPath := filepath.Join(dir, "ledger.jsonl")
+	l := ledger.New(ledgerPath)
+	if err := l.Accept("0.1.0", diff.Deviation{
+		StepID:  "step-2",
+		Kind:    diff.KindDrifting,
+		Summary: "punted on statuses",
+	}); err != nil {
+		t.Fatalf("Accept: %v", err)
+	}
+	// Append a malformed line (simulating a partial write from a SIGINT
+	// mid-Append) so the ledger is partially unparseable.
+	good, err := os.ReadFile(ledgerPath)
+	if err != nil {
+		t.Fatalf("read ledger: %v", err)
+	}
+	if err := os.WriteFile(ledgerPath, append(good, []byte("not json\n")...), 0o644); err != nil {
+		t.Fatalf("write malformed ledger: %v", err)
+	}
+	var out bytes.Buffer
+	if err := runLog(ledgerPath, false, false, &out); err != nil {
+		t.Fatalf("runLog: %v", err)
+	}
+	// The malformed line must be surfaced as a skipped-line summary, not
+	// silently reconciled as a partial trail.
+	if !bytes.Contains(out.Bytes(), []byte("1 unparseable ledger line(s) skipped")) {
+		t.Errorf("log output should surface the skipped-line summary:\n%s", out.String())
+	}
+	// The good accept entry is still rendered (the malformed line is skipped,
+	// not the whole trail aborted).
+	if !bytes.Contains(out.Bytes(), []byte("step-2")) {
+		t.Errorf("log output should still render the good accept entry:\n%s", out.String())
+	}
+}
+
+// TestRunPatchPreservesPlanPerms (v0.7.0 fix-patch-plan-perms-regression):
+// `driftledger patch` rewrites the plan via os.CreateTemp + os.Rename, which
+// replaces the plan's inode with the temp file's (mode 0o600). The plan's
+// original permissions must be preserved across the patch so a plan authored
+// 0o644 (the mode `driftledger init` writes) stays 0o644 — a downstream CI step
+// or teammate reading plan.md as a different user must not lose read access
+// after the first patch.
+func TestRunPatchPreservesPlanPerms(t *testing.T) {
+	dir := t.TempDir()
+	planPath := filepath.Join(dir, "plan.md")
+	ledgerPath := filepath.Join(dir, "ledger.jsonl")
+	if err := os.WriteFile(planPath, []byte(plan.DefaultPlanMarkdown), 0o644); err != nil {
+		t.Fatalf("write plan: %v", err)
+	}
+	// Force 0o644 explicitly so the assertion is umask-independent.
+	if err := os.Chmod(planPath, 0o644); err != nil {
+		t.Fatalf("chmod plan: %v", err)
+	}
+	var out bytes.Buffer
+	if err := runPatch(planPath, ledgerPath, &out); err != nil {
+		t.Fatalf("runPatch: %v", err)
+	}
+	fi, err := os.Stat(planPath)
+	if err != nil {
+		t.Fatalf("stat plan after patch: %v", err)
+	}
+	if fi.Mode().Perm() != 0o644 {
+		t.Errorf("plan perms = %o, want 0o644 (preserved across the CreateTemp+rename patch)", fi.Mode().Perm())
 	}
 }

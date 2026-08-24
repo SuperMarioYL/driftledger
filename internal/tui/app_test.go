@@ -134,7 +134,7 @@ func TestAcceptAppendsLedgerEntry(t *testing.T) {
 	}
 
 	// The ledger file should now carry exactly one accept entry for step-2.
-	accepted, err := ledger.AcceptedStepIDs(ledgerPath)
+	accepted, _, err := ledger.AcceptedStepIDs(ledgerPath)
 	if err != nil {
 		t.Fatalf("AcceptedStepIDs: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestAcceptAppendsLedgerEntry(t *testing.T) {
 	// A second `a` on the same (now-accepted) step must NOT append a duplicate.
 	mm, _ = m.Update(keyMsg('a'))
 	m = mm.(Model)
-	entries, _ := ledger.Read(ledgerPath)
+	entries, _, _ := ledger.Read(ledgerPath)
 	if len(entries) != 1 {
 		t.Errorf("ledger entries = %d, want 1 (no duplicate accept)", len(entries))
 	}

@@ -4,6 +4,7 @@ package cmds
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -43,7 +44,7 @@ Reconciliation is structural (step-presence plus accept-criteria keyword match),
 deterministic, and re-run on every new trace line. The ledger is append-only
 JSONL you can inspect with jq. diff + watch ship m1; patch ships m2 (rewrite the
 contract from accepted deviations); rollback (m3) is stubbed on the roadmap.`,
-		Version: "0.6.0",
+		Version: "0.7.0",
 	}
 
 	root.AddCommand(newInitCmd())
@@ -134,7 +135,14 @@ func runDiff(planPath, tracePath, ledgerPath string, jsonOut, jsonPretty, failOn
 		return err
 	}
 	events, skipped, outOfOrder, err := trace.ParseFile(tracePath)
-	if err != nil && !os.IsNotExist(err) {
+	// v0.7.0 fix-diff-missing-trace-error: trace.ParseFile wraps os.Open's
+	// not-exist error with fmt.Errorf("trace: open %s: %w"…); os.IsNotExist does
+	// NOT unwrap a %w-wrapped error (errors.Is does), so a missing trace made
+	// `driftledger diff` error instead of reconciling all-unexecuted — the common
+	// start-of-run / pre-trace CI case. Mirror the watch TUI guard at
+	// internal/tui/app.go:194 (errors.Is(err, os.ErrNotExist)) so a missing trace
+	// is swallowed and diff.Reconcile(plan, nil) paints every step unexecuted.
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	// v0.3.0 fix-trace-parsefile-silent-skip: surface malformed-line count so
@@ -149,7 +157,7 @@ func runDiff(planPath, tracePath, ledgerPath string, jsonOut, jsonPretty, failOn
 	}
 	devs := diff.Reconcile(p, events)
 
-	accepted, err := ledger.AcceptedStepIDs(ledgerPath)
+	accepted, skipped, err := ledger.AcceptedStepIDs(ledgerPath)
 	if err != nil && !os.IsNotExist(err) {
 		// A missing ledger is normal for a fresh run — reconcile without the
 		// overlay (ledger.Read returns nil/nil for a NotExist file, so a
@@ -163,6 +171,12 @@ func runDiff(planPath, tracePath, ledgerPath string, jsonOut, jsonPretty, failOn
 		// the v0.5.0 trace-read guard fix-tui-refresh-wipes-on-trace-error,
 		// now extended to the ledger-read path.)
 		return err
+	}
+	// v0.7.0 fix-ledger-read-silent-skip: surface malformed-ledger-line count so
+	// the accept overlay is never silently partial — a corrupted accept line
+	// would otherwise drop that accept and make --fail-on-drift fire spuriously.
+	if skipped > 0 {
+		fmt.Fprintf(os.Stderr, "warning: %d unparseable ledger line(s) skipped — accept overlay may be partial\n", skipped)
 	}
 	devs = diff.OverlayAccepted(devs, accepted)
 
@@ -273,9 +287,12 @@ func runPatch(planPath, ledgerPath string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	entries, err := ledger.Read(ledgerPath)
+	entries, skipped, err := ledger.Read(ledgerPath)
 	if err != nil {
 		return err
+	}
+	if skipped > 0 {
+		fmt.Fprintf(os.Stderr, "warning: %d unparseable ledger line(s) skipped — pending set may be partial\n", skipped)
 	}
 	pending := pendingAccepted(entries)
 
@@ -301,6 +318,17 @@ func runPatch(planPath, ledgerPath string, out io.Writer) error {
 	// ledger patch entry, THEN atomically rename — so a ledger-append failure
 	// discards the temp file and leaves the plan + pending set unchanged (no
 	// double-fold / second version bump on the next patch call).
+	// v0.7.0 fix-patch-plan-perms-regression: os.CreateTemp creates the temp
+	// file mode 0o600 and os.Rename overwrites the plan's inode with the temp's,
+	// so a plan authored 0o644 (the mode `driftledger init` writes) becomes 0o600
+	// after the first patch — silently stripping group/other read so a downstream
+	// CI step or teammate reading plan.md as a different user fails. Capture the
+	// plan's mode before the rewrite and chmod the temp file to it before the
+	// rename so the rewritten plan keeps the user's original permissions.
+	origMode := os.FileMode(0o644)
+	if fi, statErr := os.Stat(planPath); statErr == nil {
+		origMode = fi.Mode().Perm()
+	}
 	tmp, err := os.CreateTemp(filepath.Dir(planPath), ".driftledger-patch-*")
 	if err != nil {
 		return fmt.Errorf("patch: temp: %w", err)
@@ -315,6 +343,10 @@ func runPatch(planPath, ledgerPath string, out io.Writer) error {
 	if err := tmp.Close(); err != nil {
 		cleanup()
 		return fmt.Errorf("patch: close temp: %w", err)
+	}
+	if err := os.Chmod(tmpPath, origMode); err != nil {
+		cleanup()
+		return fmt.Errorf("patch: chmod temp: %w", err)
 	}
 	l := ledger.New(ledgerPath)
 	// v0.5.0 fix-patch-rename-failure-desync: capture the ledger file size
@@ -428,9 +460,12 @@ func runRollback(planPath, ledgerPath string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	entries, err := ledger.Read(ledgerPath)
+	entries, skipped, err := ledger.Read(ledgerPath)
 	if err != nil {
 		return err
+	}
+	if skipped > 0 {
+		fmt.Fprintf(os.Stderr, "warning: %d unparseable ledger line(s) skipped — pending set may be partial\n", skipped)
 	}
 	pending := pendingAccepted(entries)
 
@@ -505,7 +540,7 @@ Pass --json to emit the LedgerEntry slice as a JSON array for machine consumers.
 // rollback). A missing ledger is a fresh run — it prints a zero-entry summary
 // rather than erroring, mirroring ledger.Read's nil/nil contract.
 func runLog(ledgerPath string, jsonOut, jsonPretty bool, out io.Writer) error {
-	entries, err := ledger.Read(ledgerPath)
+	entries, skipped, err := ledger.Read(ledgerPath)
 	if err != nil {
 		return err
 	}
@@ -521,6 +556,12 @@ func runLog(ledgerPath string, jsonOut, jsonPretty bool, out io.Writer) error {
 		if entries == nil {
 			entries = []ledger.Entry{}
 		}
+		// v0.7.0 fix-ledger-read-silent-skip: surface the malformed-line count
+		// on stderr so the JSON array stays clean for machine consumers but the
+		// partial-ledger warning is not silently swallowed.
+		if skipped > 0 {
+			fmt.Fprintf(os.Stderr, "warning: %d unparseable ledger line(s) skipped — audit trail may be partial\n", skipped)
+		}
 		enc := json.NewEncoder(out)
 		if jsonPretty {
 			enc.SetIndent("", "  ")
@@ -534,6 +575,11 @@ func runLog(ledgerPath string, jsonOut, jsonPretty bool, out io.Writer) error {
 	fmt.Fprintln(out, "------")
 	for _, e := range entries {
 		fmt.Fprintln(out, formatLedgerEntry(e))
+	}
+	// v0.7.0 fix-ledger-read-silent-skip: surface malformed-ledger-line count as
+	// a trailing summary line so the audit trail is never silently partial.
+	if skipped > 0 {
+		fmt.Fprintf(out, "warning: %d unparseable ledger line(s) skipped — audit trail may be partial\n", skipped)
 	}
 	return nil
 }

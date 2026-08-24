@@ -148,19 +148,24 @@ func (l *Ledger) Rollback(planVersion string, devs []diff.Deviation) error {
 	return nil
 }
 
-// Read returns every entry in the ledger file. A missing file returns nil +
-// nil — a fresh repo simply has no accepted deviations yet.
-func Read(path string) ([]Entry, error) {
+// Read returns every entry in the ledger file plus the count of malformed JSONL
+// lines that were skipped, so a caller can surface "N unparseable ledger
+// line(s) skipped" rather than silently reconciling a partial ledger (v0.7.0
+// fix-ledger-read-silent-skip — mirrors trace.ParseReader's skipped count). A
+// missing file returns nil + 0 + nil — a fresh repo simply has no accepted
+// deviations yet.
+func Read(path string) ([]Entry, int, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil, 0, nil
 		}
-		return nil, fmt.Errorf("ledger: open %s: %w", path, err)
+		return nil, 0, fmt.Errorf("ledger: open %s: %w", path, err)
 	}
 	defer f.Close()
 
 	var entries []Entry
+	skipped := 0
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
@@ -170,22 +175,28 @@ func Read(path string) ([]Entry, error) {
 		}
 		var e Entry
 		if err := json.Unmarshal([]byte(line), &e); err != nil {
-			// Skip a malformed line rather than aborting the whole trail — the
-			// ledger must stay readable even if a writer crashed mid-line.
+			// Count a malformed line rather than aborting the whole trail — the
+			// ledger must stay readable even if a writer crashed mid-line. The
+			// skipped count is returned so callers can surface it instead of
+			// silently reconciling a partial ledger (v0.7.0
+			// fix-ledger-read-silent-skip, mirroring trace.ParseReader).
+			skipped++
 			continue
 		}
 		entries = append(entries, e)
 	}
 	if err := sc.Err(); err != nil {
-		return entries, fmt.Errorf("ledger: scan: %w", err)
+		return entries, skipped, fmt.Errorf("ledger: scan: %w", err)
 	}
-	return entries, nil
+	return entries, skipped, nil
 }
 
 // AcceptedStepIDs reads the ledger and returns the set of plan step ids that
-// have an `accept` entry recorded SINCE the most recent patch/rollback. The
-// watch TUI overlays this onto a fresh reconcile so a previously-accepted
-// drift stays accepted as new trace lines arrive.
+// have an `accept` entry recorded SINCE the most recent patch/rollback, plus
+// the count of malformed ledger lines skipped (threaded up from Read so callers
+// can surface it — v0.7.0 fix-ledger-read-silent-skip). The watch TUI overlays
+// this onto a fresh reconcile so a previously-accepted drift stays accepted as
+// new trace lines arrive.
 //
 // A patch folds the pending accepts into a new plan version and a rollback
 // reverts them; both CONSUME the accepted set, so the overlay is reset on an
@@ -196,10 +207,10 @@ func Read(path string) ([]Entry, error) {
 // already-accepted and blocking re-acceptance — breaking the
 // accept→patch→accept loop that is the product's core workflow
 // (v0.5.0 fix-accepted-overlay-leaks-past-patch).
-func AcceptedStepIDs(path string) (map[string]bool, error) {
-	entries, err := Read(path)
+func AcceptedStepIDs(path string) (map[string]bool, int, error) {
+	entries, skipped, err := Read(path)
 	if err != nil {
-		return nil, err
+		return nil, skipped, err
 	}
 	accepted := make(map[string]bool)
 	for _, e := range entries {
@@ -214,5 +225,5 @@ func AcceptedStepIDs(path string) (map[string]bool, error) {
 			}
 		}
 	}
-	return accepted, nil
+	return accepted, skipped, nil
 }

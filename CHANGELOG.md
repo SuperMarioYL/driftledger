@@ -5,6 +5,53 @@ All notable changes to DriftLedger are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-08-25
+
+Three in-lane correctness fixes that close the silent-failure and
+atomicity-permission gaps the prior versions targeted. No reconcile, plan/trace
+parsing, or feature surface changed.
+
+### Fixed
+
+- **Stop `driftledger diff` from erroring on a missing trace file.** `runDiff`
+  guarded the trace-read error with `os.IsNotExist`, but `trace.ParseFile` wraps
+  `os.Open`'s not-exist error with `fmt.Errorf("trace: open %s: %w"…)` and
+  `os.IsNotExist` does NOT unwrap a `%w`-wrapped error (`errors.Is` does), so the
+  NotExist case never matched and `diff` returned the error instead of
+  reconciling an empty (all-unexecuted) trace — the common start-of-run /
+  pre-trace CI case. The guard now uses `errors.Is(err, os.ErrNotExist)`,
+  mirroring the watch TUI path (`fix-tui-refresh-wipes-on-trace-error`), so a
+  missing trace is swallowed and `diff.Reconcile(plan, nil)` paints every step
+  unexecuted.
+  (`internal/cmds/commands.go`)
+
+- **Surface malformed ledger lines instead of silently reconciling a partial
+  ledger.** `ledger.Read` did `if err := json.Unmarshal(...); err != nil {
+  continue }` — silently skipping any malformed JSONL line with NO skipped count
+  returned (signature `([]Entry, error)`), so every caller silently computed a
+  partial ledger and a corrupted accept line silently dropped that accept.
+  `Read` now returns a skipped count (mirroring `trace.ParseReader`), surfaced
+  by `diff` (stderr), `log` (a summary line / stderr under `--json`), `patch` /
+  `rollback` (stderr), and the watch TUI's `overlayAccepted` (the `m.err` band)
+  so a partial ledger is never silently reconciled.
+  (`internal/ledger/ledger.go`, `internal/cmds/commands.go`, `internal/tui/app.go`)
+
+- **Preserve the plan file's permissions across a patch.** `runPatch` writes the
+  rewritten plan via `os.CreateTemp` (mode 0o600) then `os.Rename`s it onto the
+  plan path, replacing the plan's inode, so a plan authored 0o644 (the mode
+  `driftledger init` writes) became 0o600 after the first patch — silently
+  stripping group/other read so a downstream CI step or teammate reading
+  `plan.md` as a different user failed. `runPatch` now stats the plan's mode
+  before the rewrite and `os.Chmod`s the temp file to it before the rename so the
+  rewritten plan keeps the user's original permissions.
+  (`internal/cmds/commands.go`)
+
+### Changed
+
+- Bumped the `VERSION` file and the `driftledger --version` surface to `0.7.0`.
+
+[0.7.0]: https://github.com/SuperMarioYL/driftledger/releases/tag/v0.7.0
+
 ## [0.6.0] - 2026-08-21
 
 Two in-lane correctness fixes that stop the ledger-read and

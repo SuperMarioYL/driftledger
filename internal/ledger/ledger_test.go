@@ -29,7 +29,7 @@ func TestAppendAndRead(t *testing.T) {
 		t.Fatalf("Accept: %v", err)
 	}
 
-	entries, err := Read(path)
+	entries, _, err := Read(path)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestAppendConcurrency(t *testing.T) {
 			t.Fatalf("concurrent Accept: %v", err)
 		}
 	}
-	entries, err := Read(path)
+	entries, _, err := Read(path)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestAppendConcurrency(t *testing.T) {
 }
 
 func TestReadMissingFile(t *testing.T) {
-	entries, err := Read(filepath.Join(t.TempDir(), "absent.jsonl"))
+	entries, _, err := Read(filepath.Join(t.TempDir(), "absent.jsonl"))
 	if err != nil {
 		t.Fatalf("Read missing file: %v", err)
 	}
@@ -89,12 +89,17 @@ func TestReadSkipsMalformedLines(t *testing.T) {
 	if err := os.WriteFile(path, content, 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	entries, err := Read(path)
+	entries, skipped, err := Read(path)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
 	if len(entries) != 1 {
 		t.Errorf("entries = %d, want 1 (malformed line skipped)", len(entries))
+	}
+	// v0.7.0 fix-ledger-read-silent-skip: the malformed line must be COUNTED,
+	// not silently dropped — callers surface "N unparseable line(s) skipped".
+	if skipped != 1 {
+		t.Errorf("skipped = %d, want 1 (the malformed line must be counted)", skipped)
 	}
 }
 
@@ -108,7 +113,7 @@ func TestAcceptedStepIDs(t *testing.T) {
 		t.Fatalf("Accept: %v", err)
 	}
 
-	accepted, err := AcceptedStepIDs(path)
+	accepted, _, err := AcceptedStepIDs(path)
 	if err != nil {
 		t.Fatalf("AcceptedStepIDs: %v", err)
 	}
@@ -121,7 +126,7 @@ func TestAcceptedStepIDs(t *testing.T) {
 }
 
 func TestAcceptedStepIDsMissingFile(t *testing.T) {
-	accepted, err := AcceptedStepIDs(filepath.Join(t.TempDir(), "absent.jsonl"))
+	accepted, _, err := AcceptedStepIDs(filepath.Join(t.TempDir(), "absent.jsonl"))
 	if err != nil {
 		t.Fatalf("AcceptedStepIDs missing file: %v", err)
 	}
@@ -139,7 +144,7 @@ func TestPatchAppendsPatchEntries(t *testing.T) {
 	if err := l.Patch("0.1.1", []diff.Deviation{drifting, unex}); err != nil {
 		t.Fatalf("Patch: %v", err)
 	}
-	entries, err := Read(path)
+	entries, _, err := Read(path)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -174,7 +179,7 @@ func TestPatchNoDeviationsAppendsMarker(t *testing.T) {
 	if err := l.Patch("0.1.1", nil); err != nil {
 		t.Fatalf("Patch: %v", err)
 	}
-	entries, err := Read(path)
+	entries, _, err := Read(path)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -201,7 +206,7 @@ func TestRollbackAppendsRollbackEntries(t *testing.T) {
 	if err := l.Rollback("0.1.0", []diff.Deviation{drifting, unex}); err != nil {
 		t.Fatalf("Rollback: %v", err)
 	}
-	entries, err := Read(path)
+	entries, _, err := Read(path)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -235,7 +240,7 @@ func TestRollbackNoDeviationsAppendsMarker(t *testing.T) {
 	if err := l.Rollback("0.1.0", nil); err != nil {
 		t.Fatalf("Rollback: %v", err)
 	}
-	entries, err := Read(path)
+	entries, _, err := Read(path)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -303,7 +308,7 @@ func TestAcceptedStepIDsResetsAfterPatch(t *testing.T) {
 	// 3. post-patch: the agent drifts on step-2 again. The overlay must NOT
 	//    mark it accepted (the pre-patch accept was folded by the patch) so
 	//    the user can press `a` to re-accept — the accept→patch→accept loop.
-	accepted, err := AcceptedStepIDs(path)
+	accepted, _, err := AcceptedStepIDs(path)
 	if err != nil {
 		t.Fatalf("AcceptedStepIDs: %v", err)
 	}
@@ -314,7 +319,7 @@ func TestAcceptedStepIDsResetsAfterPatch(t *testing.T) {
 	if err := l.Accept("0.1.1", dev("step-2", diff.KindDrifting)); err != nil {
 		t.Fatalf("re-Accept: %v", err)
 	}
-	accepted, err = AcceptedStepIDs(path)
+	accepted, _, err = AcceptedStepIDs(path)
 	if err != nil {
 		t.Fatalf("AcceptedStepIDs after re-accept: %v", err)
 	}
@@ -336,7 +341,7 @@ func TestAcceptedStepIDsResetsAfterRollback(t *testing.T) {
 	if err := l.Rollback("0.1.0", []diff.Deviation{dev("step-2", diff.KindDrifting)}); err != nil {
 		t.Fatalf("Rollback: %v", err)
 	}
-	accepted, err := AcceptedStepIDs(path)
+	accepted, _, err := AcceptedStepIDs(path)
 	if err != nil {
 		t.Fatalf("AcceptedStepIDs: %v", err)
 	}
@@ -347,7 +352,7 @@ func TestAcceptedStepIDsResetsAfterRollback(t *testing.T) {
 	if err := l.Accept("0.1.0", dev("step-3", diff.KindDrifting)); err != nil {
 		t.Fatalf("Accept step-3: %v", err)
 	}
-	accepted, err = AcceptedStepIDs(path)
+	accepted, _, err = AcceptedStepIDs(path)
 	if err != nil {
 		t.Fatalf("AcceptedStepIDs after accept: %v", err)
 	}
