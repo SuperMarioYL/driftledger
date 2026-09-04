@@ -5,6 +5,34 @@ All notable changes to DriftLedger are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-09-04
+
+A maintenance release that moves all three release-semver surfaces in
+lockstep and adds a single-source-of-truth guard so a future bump cannot
+silently leave one surface behind. No reconcile, plan/trace parsing, ledger,
+or feature surface changed.
+
+### Fixed
+
+- **Add a single-source-of-truth version test guarding surface drift.** The
+  release version lived on three surfaces — the `VERSION` file, the cobra root
+  command's `Version` field (the `driftledger --version` output), and the
+  `CHANGELOG.md` head entry — with no test asserting they agree, so a bump
+  that touched only one shipped silently out of sync (the v0.6.0 changelog
+  itself documents a prior "VERSION stale at 0.4.0" lag). A new
+  `internal/cmds/version_test.go` reads the `VERSION` file, the root
+  command's `Version` field, and the first `## [x.y.z]` heading from
+  `CHANGELOG.md`, and asserts all three equal the shipped version. The test
+  fails on a tag whose surfaces disagree, so a single-surface miss is caught
+  before release.
+  (`internal/cmds/version_test.go`)
+
+### Changed
+
+- Bumped the `VERSION` file and the `driftledger --version` surface to `0.8.0`.
+
+[0.8.0]: https://github.com/SuperMarioYL/driftledger/releases/tag/v0.8.0
+
 ## [0.7.0] - 2026-08-25
 
 Three in-lane correctness fixes that close the silent-failure and

@@ -44,7 +44,7 @@ Reconciliation is structural (step-presence plus accept-criteria keyword match),
 deterministic, and re-run on every new trace line. The ledger is append-only
 JSONL you can inspect with jq. diff + watch ship m1; patch ships m2 (rewrite the
 contract from accepted deviations); rollback (m3) is stubbed on the roadmap.`,
-		Version: "0.7.0",
+		Version: "0.8.0",
 	}
 
 	root.AddCommand(newInitCmd())
