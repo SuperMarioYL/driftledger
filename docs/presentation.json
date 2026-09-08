@@ -1,0 +1,94 @@
+{
+  "name": "DriftLedger",
+  "tagline": "Review the plan beside the execution trace.",
+  "architecture": {
+    "title": "Two inputs and an acceptance ledger",
+    "nodes": [
+      {
+        "title": "Versioned plan",
+        "detail": "Step IDs and accept keywords"
+      },
+      {
+        "title": "Execution trace",
+        "detail": "Timestamped summaries"
+      },
+      {
+        "title": "Reconciler",
+        "detail": "Structural comparison"
+      },
+      {
+        "title": "Ledger",
+        "detail": "Accepted deviations"
+      },
+      {
+        "title": "CLI / TUI",
+        "detail": "Review, patch and directives"
+      }
+    ],
+    "edges": [
+      [
+        0,
+        2
+      ],
+      [
+        1,
+        2
+      ],
+      [
+        2,
+        4
+      ],
+      [
+        3,
+        4
+      ],
+      [
+        4,
+        3
+      ]
+    ]
+  },
+  "process": {
+    "title": "Inspect four distinct deviation kinds",
+    "steps": [
+      {
+        "title": "Read the contract",
+        "detail": "Three planned steps"
+      },
+      {
+        "title": "Read the trace",
+        "detail": "Three constructed events"
+      },
+      {
+        "title": "Compare criteria",
+        "detail": "Report JSON criterion missing"
+      },
+      {
+        "title": "Show four rows",
+        "detail": "Matched, drifting, unexecuted, extra"
+      }
+    ],
+    "result": "One row per demonstrated kind; no Git mutation."
+  },
+  "integrations": {
+    "title": "Contracts and review outputs",
+    "items": [
+      {
+        "title": "Markdown",
+        "detail": "Plan contract"
+      },
+      {
+        "title": "JSONL trace",
+        "detail": "Caller-produced events"
+      },
+      {
+        "title": "JSONL ledger",
+        "detail": "Acceptance and revision history"
+      },
+      {
+        "title": "JSON / TUI",
+        "detail": "Machine and human review"
+      }
+    ]
+  }
+}

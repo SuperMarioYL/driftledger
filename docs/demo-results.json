@@ -1,0 +1,24 @@
+{
+  "version": "0.8.0",
+  "fixture": "Constructed three-step contract and three trace events with fixed timestamps; no agent was run and no Git history changed.",
+  "inputs": [
+    {
+      "path": "examples/presentation-empty-ledger.jsonl",
+      "content": ""
+    },
+    {
+      "path": "examples/presentation-plan.md",
+      "content": "# Plan: inspect a change\nversion: 0.1.0\n## parse\nintent: Read the input\naccept: parse input\n## report\nintent: Write the report\naccept: report json\n## verify\nintent: Check the result\naccept: tests passed\n"
+    },
+    {
+      "path": "examples/presentation-trace.jsonl",
+      "content": "{\"ts\":\"2026-01-01T00:00:00Z\",\"step_id\":\"parse\",\"action\":\"read\",\"summary\":\"parse input\"}\n{\"ts\":\"2026-01-01T00:01:00Z\",\"step_id\":\"report\",\"action\":\"write\",\"summary\":\"report text\"}\n{\"ts\":\"2026-01-01T00:02:00Z\",\"step_id\":\"extra\",\"action\":\"write\",\"summary\":\"rewrote a logo\"}\n"
+    }
+  ],
+  "steps": [
+    {
+      "command": "go run ./cmd/driftledger diff examples/presentation-plan.md examples/presentation-trace.jsonl --ledger examples/presentation-empty-ledger.jsonl --json --json-pretty",
+      "output": "[\n  {\n    \"step_id\": \"parse\",\n    \"kind\": \"matched\",\n    \"first_seen_ts\": \"2026-01-01T00:00:00Z\",\n    \"summary\": \"Read the input\",\n    \"accepted\": false\n  },\n  {\n    \"step_id\": \"report\",\n    \"kind\": \"drifting\",\n    \"first_seen_ts\": \"2026-01-01T00:01:00Z\",\n    \"summary\": \"Write the report\",\n    \"unmet_criteria\": [\n      \"report json\"\n    ],\n    \"accepted\": false\n  },\n  {\n    \"step_id\": \"verify\",\n    \"kind\": \"unexecuted\",\n    \"first_seen_ts\": \"0001-01-01T00:00:00Z\",\n    \"summary\": \"Check the result\",\n    \"accepted\": false\n  },\n  {\n    \"step_id\": \"extra\",\n    \"kind\": \"extra\",\n    \"first_seen_ts\": \"2026-01-01T00:02:00Z\",\n    \"summary\": \"rewrote a logo\",\n    \"accepted\": false\n  }\n]\n"
+    }
+  ]
+}

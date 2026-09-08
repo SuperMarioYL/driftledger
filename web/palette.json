@@ -1,0 +1,38 @@
+{
+  "mode": "auto",
+  "id": "e656c4-e76a87-ecacf6-a06a66acec1c",
+  "identity": "https://github.com/supermarioyl/driftledger",
+  "primary": "#e656c4",
+  "secondary": "#e76a87",
+  "highlight": "#ecacf6",
+  "dark": {
+    "bg": "#0a0711",
+    "panel": "#13101d",
+    "code": "#140d1b",
+    "ink": "#fbeefd",
+    "muted": "#b29cbe",
+    "line": "#3a1838",
+    "primary": "#e656c4",
+    "secondary": "#e76a87",
+    "highlight": "#ecacf6",
+    "accent": "#e656c4",
+    "buttonStart": "#bf47a3",
+    "buttonEnd": "#bb566d",
+    "buttonText": "#ffffff"
+  },
+  "light": {
+    "bg": "#fef9fd",
+    "panel": "#fef7fc",
+    "code": "#fdf3fb",
+    "ink": "#27162b",
+    "muted": "#725e81",
+    "line": "#f7cbed",
+    "primary": "#b6449c",
+    "secondary": "#b25268",
+    "highlight": "#8a6490",
+    "accent": "#b6449c",
+    "buttonStart": "#bf47a3",
+    "buttonEnd": "#bb566d",
+    "buttonText": "#ffffff"
+  }
+}

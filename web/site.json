@@ -1,129 +1,229 @@
 {
-  "schema": 1,
-  "content_version": 4,
-  "name": "driftledger",
+  "schema": 3,
+  "name": "DriftLedger",
   "github": "https://github.com/SuperMarioYL/driftledger",
   "host": "driftledger.lei6393.com",
+  "palette": "auto",
   "lang": {
     "primary": "en",
     "toggle": true
   },
-  "accent": [
-    "#e8a04c",
-    "#d97757",
-    "#6b7280"
-  ],
+  "meta": {
+    "visual_profile": "neon-particle",
+    "demo_source": "docs/demo-results.json",
+    "implementation_version": "0.8.0"
+  },
   "hero": {
     "eyebrow": {
-      "zh": "长程智能体 · 计划即合约 · 飞行中纠偏",
-      "en": "Long-horizon agents · Plan-as-contract · Mid-flight course-correct"
+      "zh": "计划对照 · 结构化差异",
+      "en": "PLAN RECONCILIATION · STRUCTURAL DIFF"
     },
     "headline": {
-      "zh": "智能体跑偏了？\n第 20 分钟就拦下，当场改回合约",
-      "en": "Your agent drifted from the plan.\nCatch it at minute 20, patch it, roll it back."
+      "zh": "计划承诺了什么，\n记录里做了什么。",
+      "en": "The plan made a promise.\nInspect what the trace says."
     },
     "sub": {
-      "zh": "把智能体公布的计划变成可对账的合约，实时对照它正在做的事——发现跑偏当场接受、写回新版合约、再一条命令发出回滚指令。从发现到纠偏，全程飞行中完成，不再等事后复盘。",
-      "en": "Turn the agent's stated plan into a reconcilable contract and watch it against live execution — accept drift on the spot, fold it back into a new versioned contract, then emit a rollback directive. From catch to correct, all mid-flight — never in the post-mortem."
+      "zh": "DriftLedger 对照 Markdown 计划与 JSONL 执行记录，列出匹配、偏离、未执行和额外步骤，并保存人工接受与计划修订的记录。",
+      "en": "DriftLedger compares Markdown plans with JSONL execution traces, identifies matched, drifting, unexecuted and extra steps, and records human acceptance and plan revisions."
     },
-    "command": "driftledger watch plan.md trace.jsonl",
+    "href": "#quickstart",
     "cta": {
-      "zh": "查看 GitHub",
-      "en": "View on GitHub"
+      "zh": "运行示例",
+      "en": "Run the example"
     },
     "ctaGithub": {
-      "zh": "Star 项目",
-      "en": "Star the repo"
-    },
-    "scroll": {
-      "zh": "往下看",
-      "en": "Scroll"
+      "zh": "查看源码",
+      "en": "View source"
+    }
+  },
+  "scene": {
+    "kind": "neon-graph",
+    "fallback": "/assets/presentation/scene-dark.svg",
+    "fallbackLight": "/assets/presentation/scene-light.svg",
+    "caption": {
+      "zh": "让计划与执行记录放在一起检查",
+      "en": "Review the plan beside the execution trace."
     }
   },
   "advantages": [
     {
       "title": {
-        "zh": "飞行中偏差账本",
-        "en": "An in-flight deviation ledger"
+        "zh": "四类状态分开",
+        "en": "Separate four states"
       },
       "body": {
-        "zh": "智能体一边跑，你一边看：哪步对上了、哪步跑偏了、哪步没动、哪步多冒出来——都是实时的，贴在你的编码智能体旁边。",
-        "en": "As the agent runs, watch live: which steps matched, which drifted, which never ran, which appeared out of nowhere — in real time, in the pane next to your coding agent."
-      },
-      "chips": [
-        "› driftledger watch",
-        "› 已匹配 / 跑偏 / 未执行 / 多余",
-        "› 边跑边对账"
-      ]
+        "zh": "未执行和额外工作不会被混成一个总分。",
+        "en": "Unexecuted and extra work remain distinct rather than becoming one score."
+      }
     },
     {
       "title": {
-        "zh": "你的 trace 不再对你撒谎",
-        "en": "Your trace stops lying to you"
+        "zh": "保留接受记录",
+        "en": "Keep acceptance records"
       },
       "body": {
-        "zh": "以前，摘要里一个换行就会让那一步的事件被悄悄丢掉——步骤明明跑了却显示没动，专门用来抓跑偏的工具自己却在丢证据。现在每一步事件都落得进去、留得下来；即便某行 trace 读不出来，你也会直接看到报错，而不是一本假干净的账本。",
-        "en": "Before, a stray newline in a step summary would silently drop that event — a step that actually ran showed up as never started, so the tool built to catch drift was itself losing evidence. Now every step event lands and stays; if a trace line can't be read, you see the error outright instead of a falsely clean ledger."
-      },
-      "chips": [
-        "› 换行不再丢事件",
-        "› 读取报错直接可见",
-        "› 账本不再残缺"
-      ]
+        "zh": "人工接受与后续计划修订进入可读取的 JSONL ledger。",
+        "en": "Human acceptance and later revisions appear in a readable JSONL ledger."
+      }
     },
     {
       "title": {
-        "zh": "接受、改回、回滚——闭环完成",
-        "en": "Accept, patch, rollback — the loop is closed"
+        "zh": "接入批处理检查",
+        "en": "Use batch checks"
       },
       "body": {
-        "zh": "按 a 接受跑偏的步骤，一条命令把接受的偏差折回新版计划合约——版本递增、留痕可查；再一条命令发出 git 回滚指令，把跑偏的改动干净地退回去。从发现跑偏到纠正合约到发出回滚，全程留在账本里，每一步都可审计，不再靠事后翻记录。",
-        "en": "Press a to accept a drifted step, one command folds the accepted deviation back into a new versioned plan contract — version bumped, receipt on the record — then one more command emits a git-revert directive so the drifted change rolls back cleanly. From spotting drift to correcting the contract to emitting the revert, it all stays in the ledger, every step auditable, no post-mortem digging."
-      },
-      "chips": [
-        "› driftledger patch",
-        "› driftledger rollback",
-        "› 版本递增 · 留痕可查",
-        "› 回滚指令只发不执行"
-      ]
-    },
-    {
-      "title": {
-        "zh": "不靠大模型对账",
-        "en": "Reconciliation without an LLM"
-      },
-      "body": {
-        "zh": "对账只看步骤在不在、验收关键词对不对——不请另一个大模型来打分。所以一个周末能搭起来，而且全程可审计、可复现。",
-        "en": "Matching is just step-presence and keyword acceptance-criteria — no second model scoring it. So it builds in a weekend and stays fully auditable and reproducible."
-      },
-      "chips": [
-        "› 无需额外模型",
-        "› 步骤 + 关键词",
-        "› 可审计 · 可复现"
-      ]
+        "zh": "diff 支持 JSON 和显式的 fail-on-drift 退出行为。",
+        "en": "diff supports JSON and explicit fail-on-drift exit behavior."
+      }
     }
   ],
-  "scene": {
-    "kind": "mesh"
+  "story": {
+    "intro": {
+      "title": {
+        "zh": "让计划与执行记录放在一起检查",
+        "en": "Review the plan beside the execution trace."
+      },
+      "body": {
+        "zh": "计划和实际执行常保存在不同地方，检查时容易只看到最终产物。把步骤 ID 与验收关键词一起对照，可以先发现哪些承诺没有在记录中出现，再由作者判断偏离是否合理。匹配来自结构规则，不是对完成质量的模型评判。",
+        "en": "Plans and actual execution often live in separate places, leaving review focused on the final artifact. Comparing step IDs and acceptance keywords helps identify promises absent from the trace before a human decides whether the deviation is justified. Matching is structural, not a model judgment of completion quality."
+      }
+    },
+    "sections": [
+      {
+        "title": {
+          "zh": "从输入到结果",
+          "en": "From input to result"
+        },
+        "body": {
+          "zh": "仓库提供三步计划、三条固定时间的构造 trace 和空 ledger。JSON 返回四行：parse 为 matched；report 缺少 report json 标准，为 drifting；verify 为 unexecuted；extra 为计划外动作。命令不修改计划或 Git 历史。",
+          "en": "The repository supplies a three-step plan, three constructed events with fixed timestamps, and an empty ledger. JSON returns four rows: parse is matched, report is drifting because report json is unmet, verify is unexecuted, and extra is outside the plan. The command changes neither the plan nor Git history."
+        },
+        "image": {
+          "light": "/assets/presentation/process-light.svg",
+          "dark": "/assets/presentation/process-dark.svg",
+          "alt": {
+            "zh": "从输入到结果",
+            "en": "From input to result"
+          }
+        }
+      },
+      {
+        "title": {
+          "zh": "实现中的分工",
+          "en": "How the implementation fits together"
+        },
+        "body": {
+          "zh": "plan 解析版本、步骤和 accept 行，trace 读取带时间戳的事件。Reconcile 按步骤归组并比较摘要关键词，ledger 再叠加人工接受状态。diff 输出文本或 JSON；watch 用 TUI 展示并接受偏离；patch 改写计划版本；rollback 只输出待人工处理的 Git 指令。",
+          "en": "plan parses the version, steps and accept lines; trace reads timestamped events. Reconcile groups by step and compares summary keywords, then ledger overlays human acceptance. diff emits text or JSON, watch provides the review TUI, patch rewrites the plan version, and rollback emits Git instructions for manual handling."
+        },
+        "image": {
+          "light": "/assets/presentation/architecture-light.svg",
+          "dark": "/assets/presentation/architecture-dark.svg",
+          "alt": {
+            "zh": "实现中的分工",
+            "en": "How the implementation fits together"
+          }
+        }
+      },
+      {
+        "title": {
+          "zh": "接入现有工作流",
+          "en": "Connect existing workflows"
+        },
+        "body": {
+          "zh": "DriftLedger 对照 Markdown 计划与 JSONL 执行记录，列出匹配、偏离、未执行和额外步骤，并保存人工接受与计划修订的记录。",
+          "en": "DriftLedger compares Markdown plans with JSONL execution traces, identifies matched, drifting, unexecuted and extra steps, and records human acceptance and plan revisions."
+        },
+        "image": {
+          "light": "/assets/presentation/integrations-light.svg",
+          "dark": "/assets/presentation/integrations-dark.svg",
+          "alt": {
+            "zh": "接入现有工作流",
+            "en": "Connect existing workflows"
+          }
+        }
+      }
+    ],
+    "details": [
+      {
+        "title": {
+          "zh": "配置与边界",
+          "en": "Configuration and limits"
+        },
+        "body": {
+          "zh": "对照依赖 trace 自报摘要和关键词，不证明动作真实发生或任务正确完成。",
+          "en": "Reconciliation relies on reported summaries and keywords; it does not prove actions occurred or tasks completed correctly."
+        }
+      }
+    ]
   },
-  "cta": {
-    "headline": {
-      "zh": "把跑偏变成飞行记录",
-      "en": "Turn drift into a flight record"
+  "demo": {
+    "title": {
+      "zh": "运行自带示例",
+      "en": "Run the supplied example"
     },
-    "sub": {
-      "zh": "一条命令装上，给长程智能体配上可对账、可修订、可回滚的计划合约。",
-      "en": "Install in one command — give your long-horizon agent a reconcilable, patchable, rollbackable plan contract."
+    "note": {
+      "zh": "v0.8.0 的实际结构对照输出。输入是构造记录，不是一次真实 Agent 执行或实际工具动作的证明。",
+      "en": "Actual structural comparison output from v0.8.0. Inputs are constructed records, not a real agent run or proof of actual tool actions."
     },
-    "button": {
-      "zh": "在 GitHub 上查看",
-      "en": "View on GitHub"
+    "source": "https://github.com/SuperMarioYL/driftledger/blob/main/docs/demo-results.json",
+    "steps": [
+      {
+        "label": {
+          "zh": "运行 1",
+          "en": "Run 1"
+        },
+        "body": {
+          "zh": "仓库提供三步计划、三条固定时间的构造 trace 和空 ledger。JSON 返回四行：parse 为 matched；report 缺少 report json 标准，为 drifting；verify 为 unexecuted；extra 为计划外动作。命令不修改计划或 Git 历史。",
+          "en": "The repository supplies a three-step plan, three constructed events with fixed timestamps, and an empty ledger. JSON returns four rows: parse is matched, report is drifting because report json is unmet, verify is unexecuted, and extra is outside the plan. The command changes neither the plan nor Git history."
+        },
+        "image": "/assets/presentation/demo-0-light.svg",
+        "imageDark": "/assets/presentation/demo-0-dark.svg",
+        "command": "go run ./cmd/driftledger diff examples/presentation-plan.md examples/presentation-trace.jsonl --ledger examples/presentation-empty-ledger.jsonl --json --json-pretty",
+        "output": "[\n  {\n    \"step_id\": \"parse\",\n    \"kind\": \"matched\",\n    \"first_seen_ts\": \"2026-01-01T00:00:00Z\",\n    \"summary\": \"Read the input\",\n    \"accepted\": false\n  },\n  {\n    \"step_id\": \"report\",\n    \"kind\": \"drifting\",\n    \"first_seen_ts\": \"2026-01-01T00:01:00Z\",\n    \"summary\": \"Write the report\",\n    \"unmet_criteria\": [\n      \"report json\"\n    ],\n    \"accepted\": false\n  },\n  {\n    \"step_id\": \"verify\",\n    \"kind\": \"unexecuted\",\n    \"first_seen_ts\": \"0001-01-01T00:00:00Z\",\n    \"summary\": \"Check the result\",\n    \"accepted\": false\n  },\n  {\n    \"step_id\": \"extra\",\n    \"kind\": \"extra\",\n    \"first_seen_ts\": \"2026-01-01T00:02:00Z\",\n    \"summary\": \"rewrote a logo\",\n    \"accepted\": false\n  }\n]\n"
+      }
+    ]
+  },
+  "quickstart": {
+    "title": {
+      "zh": "运行完整示例",
+      "en": "Run the complete example"
+    },
+    "body": {
+      "zh": "需要 Go 1.24+。首次构建可能下载依赖；对照过程不调用模型或网络服务。",
+      "en": "Requires Go 1.24+. Initial builds may download dependencies; reconciliation calls no model or network service."
+    },
+    "steps": [
+      {
+        "title": {
+          "zh": "准备环境",
+          "en": "Prepare the environment"
+        },
+        "code": "git clone https://github.com/SuperMarioYL/driftledger.git\ncd driftledger\ngo build -o driftledger ./cmd/driftledger"
+      },
+      {
+        "title": {
+          "zh": "运行本地示例",
+          "en": "Run the local example"
+        },
+        "code": "bash docs/demo.sh"
+      }
+    ]
+  },
+  "limitations": [
+    {
+      "zh": "对照依赖 trace 自报摘要和关键词，不证明动作真实发生或任务正确完成。",
+      "en": "Reconciliation relies on reported summaries and keywords; it does not prove actions occurred or tasks completed correctly."
+    },
+    {
+      "zh": "rollback 输出指令但不执行，用户仍需选择正确提交并处理回滚。",
+      "en": "rollback emits instructions without executing them; the user must choose the correct commit and handle reversal."
     }
-  },
+  ],
   "footer": {
     "tag": {
-      "zh": "长程智能体的飞行记录仪",
-      "en": "The flight recorder for long-horizon agents"
+      "zh": "Go 1.24+ · MIT",
+      "en": "Go 1.24+ · MIT"
     }
   }
 }
